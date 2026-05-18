@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build Nautrouds Core and Compiler
-RUN go build -o /bin/nautrouds-core ./cmd/nautrouds-core
+RUN go build -o /bin/nautrouds ./cmd/core
 RUN go build -o /bin/ntuc ./cmd/ntuc
 
 # --- Final Stage ---
@@ -29,7 +29,7 @@ RUN addgroup -S nautrouds && adduser -S nautrouds -G nautrouds
 WORKDIR /app
 
 # Copy binaries from builder
-COPY --from=builder /bin/nautrouds-core /usr/local/bin/nautrouds-core
+COPY --from=builder /bin/nautrouds /usr/local/bin/nautrouds
 COPY --from=builder /bin/ntuc /usr/local/bin/ntuc
 
 # Copy entrypoint script

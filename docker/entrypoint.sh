@@ -25,4 +25,4 @@ if command -v setfacl >/dev/null 2>&1; then
     setfacl -R -d -m m::rwx "$NAUTROUDS_SERVICES_DIR"
 fi
 
-exec su-exec nautrouds /usr/local/bin/nautrouds-core "$@"
+exec su-exec nautrouds /usr/local/bin/nautrouds "$@"
