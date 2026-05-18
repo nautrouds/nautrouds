@@ -1,7 +1,7 @@
 package interpolate_test
 
 import (
-	"nautilus/internal/interpolate"
+	"nautrouds/internal/interpolate"
 	"net/http"
 	"net/url"
 	"testing"
@@ -78,7 +78,7 @@ func TestAnalyze(t *testing.T) {
 }
 
 func TestReplace(t *testing.T) {
-	u, _ := url.Parse("http://example.com/api/v1?id=123&name=nautilus")
+	u, _ := url.Parse("http://example.com/api/v1?id=123&name=nautrouds")
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	req.Host = "example.com"
 	req.Header.Set("X-API-Key", "secret-key")
@@ -94,7 +94,7 @@ func TestReplace(t *testing.T) {
 		{
 			name:     "Full replacement",
 			origin:   "http://{host}{path}?{queries}",
-			expected: "http://example.com/api/v1?id=123&name=nautilus",
+			expected: "http://example.com/api/v1?id=123&name=nautrouds",
 		},
 		{
 			name:     "Method and RemoteIP",

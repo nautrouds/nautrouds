@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"nautilus/internal/core/registry"
+	"nautrouds/internal/core/registry"
 )
 
 func TestWatcher_Basic(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautilus-watcher-test-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-watcher-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestWatcher_Basic(t *testing.T) {
 }
 
 func TestWatcher_ScanOnStart(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautilus-watcher-start-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-watcher-start-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}

@@ -1,7 +1,7 @@
 package rtree_test
 
 import (
-	"nautilus/internal/rtree"
+	"nautrouds/internal/rtree"
 	"net/http"
 	"testing"
 
@@ -117,7 +117,7 @@ func TestRouteTree_Search(t *testing.T) {
 func TestRouteTree_Compression(t *testing.T) {
 	rawNodes := []*rtree.RawNode{
 		{
-			URL:     "nautilus.io/api/v1",
+			URL:     "nautrouds.io/api/v1",
 			Service: "api-svc",
 			Methods: http.MethodGet,
 		},
@@ -125,7 +125,7 @@ func TestRouteTree_Compression(t *testing.T) {
 
 	tree := rtree.Build(rawNodes)
 
-	url := []byte("nautilus.io/api/v1")
+	url := []byte("nautrouds.io/api/v1")
 	urlBytes := rtree.ReverseHost(url)
 
 	node, exists := tree.Search(urlBytes)

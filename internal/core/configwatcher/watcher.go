@@ -4,10 +4,10 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
-	"nautilus/internal/core/logs"
-	"nautilus/internal/core/metrics"
-	"nautilus/internal/core/proxy"
-	"nautilus/internal/rtree"
+	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/proxy"
+	"nautrouds/internal/rtree"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,13 +22,13 @@ type ConfigWatcher struct {
 	configDirectory string
 	configFileName  string
 	fullConfigPath  string
-	ntlcPath        string
+	ntucPath        string
 	manager         *proxy.Manager
 	isSource        bool
 	fw              *fsnotify.Watcher
 }
 
-func NewConfigWatcher(configPath, ntlcPath string, manager *proxy.Manager) (*ConfigWatcher, error) {
+func NewConfigWatcher(configPath, ntucPath string, manager *proxy.Manager) (*ConfigWatcher, error) {
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -43,9 +43,9 @@ func NewConfigWatcher(configPath, ntlcPath string, manager *proxy.Manager) (*Con
 		configDirectory: filepath.Dir(configPath),
 		configFileName:  filepath.Base(configPath),
 		fullConfigPath:  absPath,
-		ntlcPath:        ntlcPath,
+		ntucPath:        ntucPath,
 		manager:         manager,
-		isSource:        !strings.HasSuffix(configPath, ".ntl"),
+		isSource:        !strings.HasSuffix(configPath, ".ntu"),
 		fw:              fw,
 	}, nil
 }
@@ -150,7 +150,7 @@ func (cw *ConfigWatcher) loadStatic() (*rtree.RouteTree, error) {
 }
 
 func (cw *ConfigWatcher) compileAndLoad() (*rtree.RouteTree, error) {
-	cmd := exec.Command(cw.ntlcPath, "-i", cw.fullConfigPath, "-o", "-")
+	cmd := exec.Command(cw.ntucPath, "-i", cw.fullConfigPath, "-o", "-")
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -174,7 +174,7 @@ func (cw *ConfigWatcher) compileAndLoad() (*rtree.RouteTree, error) {
 	slurp, _ := io.ReadAll(stderr)
 	if err := cmd.Wait(); err != nil {
 		metrics.Global.ConfigErrorsTotal.WithLabelValues("compile_fail").Inc()
-		return nil, fmt.Errorf("ntlc failed: %v, stderr: %s", err, string(slurp))
+		return nil, fmt.Errorf("ntuc failed: %v, stderr: %s", err, string(slurp))
 	}
 
 	if decodeErr != nil {

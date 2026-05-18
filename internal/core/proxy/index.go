@@ -4,15 +4,15 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"nautilus/internal/core/builtins"
-	"nautilus/internal/core/builtins/builtinsmware"
-	"nautilus/internal/core/builtins/virtualservices"
-	"nautilus/internal/core/logs"
-	"nautilus/internal/core/metrics"
-	"nautilus/internal/core/registry"
-	"nautilus/internal/interpolate"
-	"nautilus/internal/rtree"
-	"nautilus/internal/tags"
+	"nautrouds/internal/core/builtins"
+	"nautrouds/internal/core/builtins/builtinsmware"
+	"nautrouds/internal/core/builtins/virtualservices"
+	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/registry"
+	"nautrouds/internal/interpolate"
+	"nautrouds/internal/rtree"
+	"nautrouds/internal/tags"
 	"net"
 	"net/http"
 	"os"
@@ -330,6 +330,6 @@ func (m *Manager) StartUDSListener(ctx context.Context, socketPath string) error
 		listener.Close()
 	}()
 
-	logs.Out.Info("Nautilus Core listening on UDS", zap.String("socketPath", socketPath))
+	logs.Out.Info("Nautrouds Core listening on UDS", zap.String("socketPath", socketPath))
 	return http.Serve(listener, m)
 }

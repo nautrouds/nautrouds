@@ -117,7 +117,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(nautilus_http_requests_total[5m])) by (service)",
+          "expr": "sum(rate(nautrouds_http_requests_total[5m])) by (service)",
           "legendFormat": "{{service}}",
           "range": true,
           "refId": "A"
@@ -208,7 +208,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(nautilus_request_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(nautrouds_request_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "P95 Latency",
           "range": true,
           "refId": "A"
@@ -219,7 +219,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(nautilus_request_duration_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(nautrouds_request_duration_seconds_bucket[5m])) by (le))",
           "legendFormat": "P99 Latency",
           "range": true,
           "refId": "B"
@@ -294,7 +294,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "nautilus_service_nodes_active",
+          "expr": "nautrouds_service_nodes_active",
           "legendFormat": "{{service}}",
           "range": true,
           "refId": "A"
@@ -384,7 +384,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(nautilus_node_failures_total[5m])) by (service, node)",
+          "expr": "sum(rate(nautrouds_node_failures_total[5m])) by (service, node)",
           "legendFormat": "{{service}} - {{node}}",
           "range": true,
           "refId": "A"
@@ -488,7 +488,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "nautilus_config_reload_duration_seconds_sum / nautilus_config_reload_duration_seconds_count",
+          "expr": "nautrouds_config_reload_duration_seconds_sum / nautrouds_config_reload_duration_seconds_count",
           "legendFormat": "Avg Reload Time",
           "range": true,
           "refId": "A"
@@ -578,7 +578,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(nautilus_config_errors_total[5m])) by (type)",
+          "expr": "sum(rate(nautrouds_config_errors_total[5m])) by (type)",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -788,7 +788,7 @@
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
-    "nautilus",
+    "nautrouds",
     "proxy"
   ],
   "templating": {
@@ -819,8 +819,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Nautilus Monitoring",
-  "uid": "nautilus-dashboard",
+  "title": "Nautrouds Monitoring",
+  "uid": "nautrouds-dashboard",
   "version": 1,
   "weekStart": ""
 }

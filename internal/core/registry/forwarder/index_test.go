@@ -3,7 +3,7 @@ package forwarder
 import (
 	"context"
 	"io"
-	"nautilus/internal/core/builtins/builtinsmware"
+	"nautrouds/internal/core/builtins/builtinsmware"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +18,7 @@ import (
 
 func TestForwarder_Forward(t *testing.T) {
 	// 1. Setup a mock UDS Server
-	tmpDir, err := os.MkdirTemp("", "nautilus-test-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -55,7 +55,7 @@ func TestForwarder_Forward(t *testing.T) {
 
 func TestForwarder_ForwardMiddleware(t *testing.T) {
 	// 1. Setup a mock UDS Middleware Server
-	tmpDir, err := os.MkdirTemp("", "nautilus-mw-test-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-mw-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -106,7 +106,7 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 }
 
 func TestForwarder_FailureReporting(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautilus-fail-test-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-fail-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 

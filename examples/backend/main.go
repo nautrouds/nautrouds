@@ -17,9 +17,9 @@ func main() {
 		serviceName = "dummy-service"
 	}
 
-	servicesDir := os.Getenv("NAUTILUS_SERVICES_DIR")
+	servicesDir := os.Getenv("NAUTROUDS_SERVICES_DIR")
 	if servicesDir == "" {
-		servicesDir = "/var/run/nautilus/services"
+		servicesDir = "/var/run/nautrouds/services"
 	}
 
 	socketDir := filepath.Join(servicesDir, serviceName)

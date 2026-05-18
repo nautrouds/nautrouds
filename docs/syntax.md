@@ -1,6 +1,6 @@
-# Ntlfile Syntax Specification
+# Ntufile Syntax Specification
 
-Nautilus uses a Domain Specific Language (DSL) called `Ntlfile` to define routing rules, middleware, and virtual services.
+Nautrouds uses a Domain Specific Language (DSL) called `Ntufile` to define routing rules, middleware, and virtual services.
 
 ## Basic Syntax
 
@@ -58,7 +58,7 @@ Middlewares are applied to a route via indentation.
 
 ## Virtual Services ($)
 
-Virtual services are functional endpoints provided by the Nautilus core.
+Virtual services are functional endpoints provided by the Nautrouds core.
 
 | Name | Arguments | Description |
 | :--- | :--- | :--- |
@@ -76,7 +76,7 @@ Virtual services are functional endpoints provided by the Nautilus core.
 
 ## Routing Logic
 
-1. **Radix Tree Matching**: Nautilus uses a Radix Tree for O(1) or O(log N) path matching.
+1. **Radix Tree Matching**: Nautrouds uses a Radix Tree for O(1) or O(log N) path matching.
 2. **Wildcards**: `*` matches any segment. Backtracking is supported for complex patterns.
 3. **Priority**: Specific paths are matched before wildcards.
 4. **Method Filtering**: If a method is specified (e.g., `POST`), requests with other methods will result in a 405 or 404 depending on tree structure.

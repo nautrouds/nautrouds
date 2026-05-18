@@ -1,9 +1,9 @@
 package proxy_test
 
 import (
-	"nautilus/internal/core/proxy"
-	"nautilus/internal/core/registry"
-	"nautilus/internal/rtree"
+	"nautrouds/internal/core/proxy"
+	"nautrouds/internal/core/registry"
+	"nautrouds/internal/rtree"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +16,7 @@ import (
 
 func TestManager_ServeHTTP(t *testing.T) {
 	// Setup a temporary directory for registry
-	tmpDir, err := os.MkdirTemp("", "nautilus-proxy-test-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-proxy-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -91,7 +91,7 @@ func TestManager_ServeHTTP(t *testing.T) {
 }
 
 func TestManager_LoadBalancing(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautilus-proxy-lb-test-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-proxy-lb-test-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 

@@ -2,7 +2,7 @@ package rtree_test
 
 import (
 	"fmt"
-	"nautilus/internal/rtree"
+	"nautrouds/internal/rtree"
 	"testing"
 
 	"github.com/stretchr/testify/assert"

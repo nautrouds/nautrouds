@@ -1,14 +1,14 @@
-# Metrics Push Specification (Nautilus & Tentacle)
+# Metrics Push Specification (Nautrouds & Tentacle)
 
-To support distributed monitoring and centralized observability, `ntl-tentacle` instances (sidecars) push their internal metrics to the central `nautilus` core. This document defines the protocol and data semantics for these updates.
+To support distributed monitoring and centralized observability, `ntl-tentacle` instances (sidecars) push their internal metrics to the central `nautrouds` core. This document defines the protocol and data semantics for these updates.
 
 ## Transport & Encoding
 
-Nautilus utilizes a high-performance, low-overhead communication channel for metrics collection:
+Nautrouds utilizes a high-performance, low-overhead communication channel for metrics collection:
 
 - **Transport**: Unix Domain Socket (UDS)
 - **Format**: Raw Binary (Header + Protobuf Payload + Checksum)
-- **Default Socket Path**: `/var/run/nautilus/services/metrics.sock` (Adjustable via `--services-dir`)
+- **Default Socket Path**: `/var/run/nautrouds/services/metrics.sock` (Adjustable via `--services-dir`)
 
 ---
 
@@ -32,7 +32,7 @@ The metrics payload is strictly governed by a centralized Protobuf schema to ens
 
 Please refer to the official repository for the latest `.proto` definitions, generated bindings, and schema documentation:
 
-+> **[nautilusUDS/tentacle-metrics](https://github.com/nautilusUDS/tentacle-metrics)**
++> **[nautroudsUDS/tentacle-metrics](https://github.com/nautroudsUDS/tentacle-metrics)**
 
 ### Key Data Concepts
 While the specific message structure is defined in the repository above, the logical model includes:
@@ -58,11 +58,11 @@ While the specific message structure is defined in the repository above, the log
 
 ## 4. Data Reporting Semantics
 
-To ensure accurate aggregation in the central Nautilus core, tentacles must follow these reporting rules:
+To ensure accurate aggregation in the central Nautrouds core, tentacles must follow these reporting rules:
 
 ### Counter Handling (Delta Reporting)
 Tentacles **MUST** report the **Delta** (the increment since the last successful push) in the `value` field.
-- **Reasoning**: Nautilus performs a simple `.Add(value)` operation. Using deltas prevents double-counting upon tentacle restarts.
+- **Reasoning**: Nautrouds performs a simple `.Add(value)` operation. Using deltas prevents double-counting upon tentacle restarts.
 - **Reset Policy**: Reset the internal delta counter to 0 **only after** a successful push to the UDS.
 
 ### Histogram Handling
@@ -76,4 +76,4 @@ Gauges are reported as **Absolute** point-in-time values in the `value` field.
 ### Reliability & Retries
 If a push fails:
 - **Do not reset** delta counters or histogram buckets.
-- Accumulate the data and retry in the next cycle. This ensures zero data loss during transient connectivity issues with the Nautilus core.
+- Accumulate the data and retry in the next cycle. This ensures zero data loss during transient connectivity issues with the Nautrouds core.

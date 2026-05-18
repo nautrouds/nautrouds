@@ -64,79 +64,79 @@ func NewRegistry() *Registry {
 
 	r := &Registry{
 		requestsTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "nautilus_requests_total",
+			Name: "nautrouds_requests_total",
 			Help: "Total number of processed requests",
 		}),
 		errorsTotal: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "nautilus_errors_total",
+			Name: "nautrouds_errors_total",
 			Help: "Total number of failed requests",
 		}),
 		configUpdates: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "nautilus_config_updates_total",
+			Name: "nautrouds_config_updates_total",
 			Help: "Total number of configuration swaps",
 		}),
 		activeRequests: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "nautilus_active_requests",
+			Name: "nautrouds_active_requests",
 			Help: "Number of requests currently being processed",
 		}),
 		uptimeSeconds: prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "nautilus_uptime_seconds",
+			Name: "nautrouds_uptime_seconds",
 			Help: "Engine uptime in seconds",
 		}, func() float64 {
 			return time.Since(startTime).Seconds()
 		}),
 
 		RequestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "nautilus_request_duration_seconds",
+			Name:    "nautrouds_request_duration_seconds",
 			Help:    "Request processing time in seconds",
 			Buckets: DefaultBuckets,
 		}, []string{"method", "route"}),
 
 		UpstreamDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "nautilus_upstream_duration_seconds",
+			Name:    "nautrouds_upstream_duration_seconds",
 			Help:    "Upstream response time in seconds",
 			Buckets: DefaultBuckets,
 		}, []string{"service", "node"}),
 
 		HTTPRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "nautilus_http_requests_total",
+			Name: "nautrouds_http_requests_total",
 			Help: "Total number of HTTP requests",
 		}, []string{"service", "status", "method"}),
 
 		RequestBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "nautilus_request_bytes_total",
+			Name: "nautrouds_request_bytes_total",
 			Help: "Total number of bytes received",
 		}, []string{"service"}),
 
 		ResponseBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "nautilus_response_bytes_total",
+			Name: "nautrouds_response_bytes_total",
 			Help: "Total number of bytes sent",
 		}, []string{"service"}),
 
 		ServiceNodesActive: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "nautilus_service_nodes_active",
+			Name: "nautrouds_service_nodes_active",
 			Help: "Number of active UDS nodes per service",
 		}, []string{"service"}),
 
 		NodeFailuresTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "nautilus_node_failures_total",
+			Name: "nautrouds_node_failures_total",
 			Help: "Total number of UDS connection failures",
 		}, []string{"service", "node"}),
 
 		RegistryScanDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "nautilus_registry_scan_duration_seconds",
+			Name:    "nautrouds_registry_scan_duration_seconds",
 			Help:    "UDS directory scan duration in seconds",
 			Buckets: DefaultBuckets,
 		}),
 
 		ConfigReloadDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "nautilus_config_reload_duration_seconds",
+			Name:    "nautrouds_config_reload_duration_seconds",
 			Help:    "Configuration hot-reload duration in seconds",
 			Buckets: DefaultBuckets,
 		}),
 
 		ConfigErrorsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "nautilus_config_errors_total",
+			Name: "nautrouds_config_errors_total",
 			Help: "Total number of configuration errors",
 		}, []string{"type"}),
 

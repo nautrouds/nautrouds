@@ -26,13 +26,13 @@ func TestMetrics(t *testing.T) {
 	body := w.Body.String()
 
 	expectedMetrics := []string{
-		"nautilus_requests_total 1",
-		"nautilus_errors_total 1",
-		"nautilus_config_updates_total 1",
-		"nautilus_active_requests 3",
-		"nautilus_uptime_seconds",
-		"nautilus_request_duration_seconds_bucket",
-		"nautilus_http_requests_total{method=\"GET\",service=\"service-a\",status=\"200\"} 1",
+		"nautrouds_requests_total 1",
+		"nautrouds_errors_total 1",
+		"nautrouds_config_updates_total 1",
+		"nautrouds_active_requests 3",
+		"nautrouds_uptime_seconds",
+		"nautrouds_request_duration_seconds_bucket",
+		"nautrouds_http_requests_total{method=\"GET\",service=\"service-a\",status=\"200\"} 1",
 	}
 
 	for _, em := range expectedMetrics {

@@ -4,14 +4,14 @@ import (
 	"encoding/gob"
 	"flag"
 	"log"
-	"nautilus/internal/compiler"
+	"nautrouds/internal/compiler"
 	"os"
 	"path/filepath"
 )
 
 func main() {
-	input := flag.String("i", "Ntlfile", "Path to Ntlfile (use '-' for stdin)")
-	output := flag.String("o", "nautilus.ntl", "Output compiled route file")
+	input := flag.String("i", "Ntufile", "Path to Ntufile (use '-' for stdin)")
+	output := flag.String("o", "nautrouds.ntu", "Output compiled route file")
 	check := flag.Bool("check", false, "")
 	print := flag.Bool("print", false, "")
 
@@ -26,7 +26,7 @@ func main() {
 	} else {
 		reader, err = os.Open(*input)
 		if err != nil {
-			log.Fatalf("Failed to open Ntlfile: %v", err)
+			log.Fatalf("Failed to open Ntufile: %v", err)
 		}
 		defer reader.Close()
 	}
@@ -57,7 +57,7 @@ func main() {
 	{
 		state, err := os.Stat(*output)
 		if err == nil && state.IsDir() {
-			*output = filepath.Join(*output, "nautilus.ntl")
+			*output = filepath.Join(*output, "nautrouds.ntu")
 		} else if err != nil && !os.IsNotExist(err) {
 			log.Fatalf("Failed to stat output file: %v", err)
 		}

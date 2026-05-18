@@ -1,8 +1,8 @@
 package compiler_test
 
 import (
-	"nautilus/internal/compiler"
-	"nautilus/internal/rtree"
+	"nautrouds/internal/compiler"
+	"nautrouds/internal/rtree"
 	"testing"
 
 	"github.com/stretchr/testify/assert"

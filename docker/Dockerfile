@@ -13,9 +13,9 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build Nautilus Core and Compiler
-RUN go build -o /bin/nautilus-core ./cmd/nautilus-core
-RUN go build -o /bin/ntlc ./cmd/ntlc
+# Build Nautrouds Core and Compiler
+RUN go build -o /bin/nautrouds-core ./cmd/nautrouds-core
+RUN go build -o /bin/ntuc ./cmd/ntuc
 
 # --- Final Stage ---
 FROM alpine:3.21
@@ -24,30 +24,30 @@ FROM alpine:3.21
 RUN apk add --no-cache su-exec acl
 
 # Create non-root user for the service
-RUN addgroup -S nautilus && adduser -S nautilus -G nautilus
+RUN addgroup -S nautrouds && adduser -S nautrouds -G nautrouds
 
 WORKDIR /app
 
 # Copy binaries from builder
-COPY --from=builder /bin/nautilus-core /usr/local/bin/nautilus-core
-COPY --from=builder /bin/ntlc /usr/local/bin/ntlc
+COPY --from=builder /bin/nautrouds-core /usr/local/bin/nautrouds-core
+COPY --from=builder /bin/ntuc /usr/local/bin/ntuc
 
 # Copy entrypoint script
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Create initial directory structure
-RUN mkdir -p /etc/nautilus /var/run/nautilus/services /var/run/nautilus/entrypoints && \
-    chown -R nautilus:nautilus /var/run/nautilus /etc/nautilus
+RUN mkdir -p /etc/nautrouds /var/run/nautrouds/services /var/run/nautrouds/entrypoints && \
+    chown -R nautrouds:nautrouds /var/run/nautrouds /etc/nautrouds
 
 # Define default volume for sockets
-VOLUME ["/var/run/nautilus"]
+VOLUME ["/var/run/nautrouds"]
 
 # Default environment variables
-ENV NAUTILUS_CONFIG=/etc/nautilus/nautilus.ntl
-ENV NAUTILUS_NTLC=ntlc
-ENV NAUTILUS_SERVICES_DIR=/var/run/nautilus/services
-ENV NAUTILUS_ENTRYPOINT_DIR=/var/run/nautilus/entrypoints
+ENV NAUTROUDS_CONFIG=/etc/nautrouds/nautrouds.ntu
+ENV NAUTROUDS_NTLC=ntuc
+ENV NAUTROUDS_SERVICES_DIR=/var/run/nautrouds/services
+ENV NAUTROUDS_ENTRYPOINT_DIR=/var/run/nautrouds/entrypoints
 
 # The entrypoint script will handle final permission adjustments and drop privileges
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

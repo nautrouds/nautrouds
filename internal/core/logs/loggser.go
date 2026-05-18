@@ -12,23 +12,23 @@ import (
 var Out *zap.Logger = zap.NewNop()
 
 func InitLogger(logLevelStr string) {
-	logPath := getEnv("NAUTILUS_LOG_FILE_PATH", "")
-	stdFormat := getEnv("NAUTILUS_LOG_STD_FORMAT", "")
-	fileFormat := getEnv("NAUTILUS_LOG_FILE_FORMAT", "")
+	logPath := getEnv("NAUTROUDS_LOG_FILE_PATH", "")
+	stdFormat := getEnv("NAUTROUDS_LOG_STD_FORMAT", "")
+	fileFormat := getEnv("NAUTROUDS_LOG_FILE_FORMAT", "")
 
-	maxSize, sizeErr := strconv.Atoi(getEnv("NAUTILUS_LOG_MAX_SIZE", "50"))
+	maxSize, sizeErr := strconv.Atoi(getEnv("NAUTROUDS_LOG_MAX_SIZE", "50"))
 	if sizeErr != nil {
 		maxSize = 50
 	}
-	maxBackups, backupsErr := strconv.Atoi(getEnv("NAUTILUS_LOG_MAX_BACKUPS", "3"))
+	maxBackups, backupsErr := strconv.Atoi(getEnv("NAUTROUDS_LOG_MAX_BACKUPS", "3"))
 	if backupsErr != nil {
 		maxBackups = 3
 	}
-	maxAge, ageErr := strconv.Atoi(getEnv("NAUTILUS_LOG_MAX_AGE", "28"))
+	maxAge, ageErr := strconv.Atoi(getEnv("NAUTROUDS_LOG_MAX_AGE", "28"))
 	if ageErr != nil {
 		maxAge = 28
 	}
-	compress, compressErr := strconv.ParseBool(getEnv("NAUTILUS_LOG_COMPRESS", "true"))
+	compress, compressErr := strconv.ParseBool(getEnv("NAUTROUDS_LOG_COMPRESS", "true"))
 	if compressErr != nil {
 		compress = true
 	}
@@ -70,16 +70,16 @@ func InitLogger(logLevelStr string) {
 	Out = zap.New(combinedCore)
 
 	if sizeErr != nil {
-		Out.Error("Invalid NAUTILUS_LOG_MAX_SIZE", zap.Error(sizeErr))
+		Out.Error("Invalid NAUTROUDS_LOG_MAX_SIZE", zap.Error(sizeErr))
 	}
 	if backupsErr != nil {
-		Out.Error("Invalid NAUTILUS_LOG_MAX_BACKUPS", zap.Error(backupsErr))
+		Out.Error("Invalid NAUTROUDS_LOG_MAX_BACKUPS", zap.Error(backupsErr))
 	}
 	if ageErr != nil {
-		Out.Error("Invalid NAUTILUS_LOG_MAX_AGE", zap.Error(ageErr))
+		Out.Error("Invalid NAUTROUDS_LOG_MAX_AGE", zap.Error(ageErr))
 	}
 	if compressErr != nil {
-		Out.Error("Invalid NAUTILUS_LOG_COMPRESS", zap.Error(compressErr))
+		Out.Error("Invalid NAUTROUDS_LOG_COMPRESS", zap.Error(compressErr))
 	}
 }
 

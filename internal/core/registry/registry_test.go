@@ -7,7 +7,7 @@ import (
 )
 
 func TestRegistry_Scan(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautilus-registry-test-*")
+	tmpDir, err := os.MkdirTemp("", "nautrouds-registry-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}

@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"nautilus/internal/core/builtins/builtinsmware"
-	"nautilus/internal/core/builtins/virtualservices"
-	"nautilus/internal/rtree"
+	"nautrouds/internal/core/builtins/builtinsmware"
+	"nautrouds/internal/core/builtins/virtualservices"
+	"nautrouds/internal/rtree"
 	"strings"
 
 	"github.com/google/shlex"

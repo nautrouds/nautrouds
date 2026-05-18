@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"nautilus/internal/core/logs"
-	"nautilus/internal/core/registry"
+	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/registry"
 
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"

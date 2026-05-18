@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"nautilus/internal/core/configwatcher"
-	"nautilus/internal/core/logs"
-	"nautilus/internal/core/metrics"
-	"nautilus/internal/core/options"
-	"nautilus/internal/core/proxy"
-	"nautilus/internal/core/registry"
-	"nautilus/internal/core/watcher"
+	"nautrouds/internal/core/configwatcher"
+	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/options"
+	"nautrouds/internal/core/proxy"
+	"nautrouds/internal/core/registry"
+	"nautrouds/internal/core/watcher"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,7 +114,7 @@ func main() {
 func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, opts *options.Options) error {
 	fileLockCtx, fileLockCancel := context.WithTimeout(context.Background(), time.Second*1)
 	defer fileLockCancel()
-	fileLock := flock.New(filepath.Join(opts.EntrypointDir, "nautilus.lock"))
+	fileLock := flock.New(filepath.Join(opts.EntrypointDir, "nautrouds.lock"))
 	locked, err := fileLock.TryLockContext(fileLockCtx, 200*time.Millisecond)
 	if err != nil || !locked {
 		return fmt.Errorf("failed to acquire lock: %w", err)
@@ -136,7 +136,7 @@ func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, o
 	socketPathMap := make(map[string]context.CancelFunc, opts.EntrypointCount)
 	offset := 0
 	for i := 0; i < opts.EntrypointCount; {
-		socketName := fmt.Sprintf("nautilus%s%d.sock", token, i+offset)
+		socketName := fmt.Sprintf("nautrouds%s%d.sock", token, i+offset)
 		socketPath := filepath.Join(opts.EntrypointDir, socketName)
 
 		if _, err := os.Stat(socketPath); err == nil {
@@ -161,7 +161,7 @@ func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, o
 	}
 
 	lc.OnExit(func() {
-		logs.Out.Info("Shutting down Nautilus Core...")
+		logs.Out.Info("Shutting down Nautrouds Core...")
 		for socketPath, cancel := range socketPathMap {
 			cancel()
 			logs.Out.Info("Removing socket", zap.String("socketPath", socketPath))

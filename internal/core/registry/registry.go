@@ -2,9 +2,9 @@ package registry
 
 import (
 	"errors"
-	"nautilus/internal/core/logs"
-	"nautilus/internal/core/metrics"
-	"nautilus/internal/core/registry/forwarder"
+	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/registry/forwarder"
 	"os"
 	"path/filepath"
 	"slices"

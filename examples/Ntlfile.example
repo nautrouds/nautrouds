@@ -1,10 +1,10 @@
-# Nautilus Docker Compose Example Configuration
+# Nautrouds Docker Compose Example Configuration
 
 # Route all traffic to the backend service
 */ backend-service
 
 # Virtual services for diagnostics
-GET */health $ok("Nautilus is healthy")
+GET */health $ok("Nautrouds is healthy")
 GET */debug/services $services
 GET */debug/echo $echo
 GET */debug/metrics $metrics

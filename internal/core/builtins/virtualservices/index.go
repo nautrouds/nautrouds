@@ -3,8 +3,8 @@ package virtualservices
 import (
 	"encoding/json"
 	"fmt"
-	"nautilus/internal/core/builtins"
-	"nautilus/internal/core/metrics"
+	"nautrouds/internal/core/builtins"
+	"nautrouds/internal/core/metrics"
 	"net"
 	"net/http"
 	"strconv"

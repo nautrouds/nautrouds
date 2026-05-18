@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"nautilus/internal/core/logs"
+	"nautrouds/internal/core/logs"
 	"net"
 	"net/http"
 	"net/url"
@@ -141,7 +141,7 @@ func BasicAuth(args ...string) HandlerFunc {
 		u, p, ok := r.BasicAuth()
 		if !ok || u != user || p != pass {
 			w.statusCode = http.StatusUnauthorized
-			w.header.Set("WWW-Authenticate", `Basic realm="Nautilus Protected"`)
+			w.header.Set("WWW-Authenticate", `Basic realm="Nautrouds Protected"`)
 		}
 	}
 }

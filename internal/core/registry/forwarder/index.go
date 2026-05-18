@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"nautilus/internal/core/builtins/builtinsmware"
-	"nautilus/internal/core/metrics"
+	"nautrouds/internal/core/builtins/builtinsmware"
+	"nautrouds/internal/core/metrics"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -78,11 +78,11 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 	originalDirector := rp.Director
 	rp.Director = func(req *http.Request) {
 		originalDirector(req)
-		req.Header.Set("X-Nautilus-Start-Time", time.Now().Format(time.RFC3339Nano))
+		req.Header.Set("X-Nautrouds-Start-Time", time.Now().Format(time.RFC3339Nano))
 	}
 
 	rp.ModifyResponse = func(resp *http.Response) error {
-		if startStr := resp.Request.Header.Get("X-Nautilus-Start-Time"); startStr != "" {
+		if startStr := resp.Request.Header.Get("X-Nautrouds-Start-Time"); startStr != "" {
 			if start, err := time.Parse(time.RFC3339Nano, startStr); err == nil {
 				duration := time.Since(start).Seconds()
 				metrics.Global.UpstreamDuration.WithLabelValues(serviceName, nodePath).Observe(duration)

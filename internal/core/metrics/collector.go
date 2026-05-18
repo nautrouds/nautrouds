@@ -7,7 +7,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/nautilusUDS/tentacle-metrics/pb"
+	"github.com/nautrouds/tentacle-metrics/pb"
 
 	"github.com/sigurn/crc16"
 	"google.golang.org/protobuf/proto"

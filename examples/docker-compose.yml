@@ -1,13 +1,13 @@
 services:
-  nautilus-core:
+  nautrouds-core:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     volumes:
-      - nautilus-sockets:/var/run/nautilus
-      - ./Ntlfile.example:/etc/nautilus/Ntlfile
+      - nautrouds-sockets:/var/run/nautrouds
+      - ./Ntufile.example:/etc/nautrouds/Ntufile
     environment:
-      - NAUTILUS_CONFIG=/etc/nautilus/Ntlfile
+      - NAUTROUDS_CONFIG=/etc/nautrouds/Ntufile
     restart: always
 
   backend-service:
@@ -17,19 +17,19 @@ services:
     environment:
       - SERVICE_NAME=backend-service
     volumes:
-      - nautilus-sockets:/var/run/nautilus
+      - nautrouds-sockets:/var/run/nautrouds
     restart: always
 
   # Optional: Bridge TCP to UDS so you can test from host
   gateway:
     image: alpine/socat
-    command: tcp-listen:8080,fork,reuseaddr unix-connect:/var/run/nautilus/entrypoints/nautilus-0.sock
+    command: tcp-listen:8080,fork,reuseaddr unix-connect:/var/run/nautrouds/entrypoints/nautrouds-0.sock
     ports:
       - "8080:8080"
     volumes:
-      - nautilus-sockets:/var/run/nautilus
+      - nautrouds-sockets:/var/run/nautrouds
     depends_on:
-      - nautilus-core
+      - nautrouds-core
 
 volumes:
-  nautilus-sockets:
+  nautrouds-sockets:

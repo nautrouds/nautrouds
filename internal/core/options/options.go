@@ -19,14 +19,14 @@ type Options struct {
 }
 
 func Load() *Options {
-	configPtr := EnvString("config", "NAUTILUS_CONFIG", "nautilus.ntl", "Path to config file (.ntl or Ntlfile)")
-	ntlcPtr := EnvString("ntlc", "NAUTILUS_NTLC", "ntlc", "Path to ntlc executable")
-	servicesDirPtr := EnvString("services", "NAUTILUS_SERVICES_DIR", "/var/run/nautilus/services", "Path to services directory")
-	entrypointDirPtr := EnvString("entrypoint-dir", "NAUTILUS_ENTRYPOINT_DIR", "/var/run/nautilus/entrypoints", "Path to entrypoint directory")
-	entrypointCountPtr := EnvString("entrypoint-count", "NAUTILUS_ENTRYPOINT_COUNT", "1", "Number of entrypoint instances to spawn")
-	logLevelPtr := EnvString("log-level", "NAUTILUS_LOG_LEVEL", "info", "Log level (debug, info, warn, error, dpanic, panic, fatal)")
-	tokenPtr := EnvString("token", "NAUTILUS_TOKEN", "", "")
-	forceCleanPtr := EnvString("force-clean", "NAUTILUS_FORCE_CLEAN", "false", "Force clean")
+	configPtr := EnvString("config", "NAUTROUDS_CONFIG", "nautrouds.ntu", "Path to config file (.ntu or Ntufile)")
+	ntucPtr := EnvString("ntuc", "NAUTROUDS_NTLC", "ntuc", "Path to ntuc executable")
+	servicesDirPtr := EnvString("services", "NAUTROUDS_SERVICES_DIR", "/var/run/nautrouds/services", "Path to services directory")
+	entrypointDirPtr := EnvString("entrypoint-dir", "NAUTROUDS_ENTRYPOINT_DIR", "/var/run/nautrouds/entrypoints", "Path to entrypoint directory")
+	entrypointCountPtr := EnvString("entrypoint-count", "NAUTROUDS_ENTRYPOINT_COUNT", "1", "Number of entrypoint instances to spawn")
+	logLevelPtr := EnvString("log-level", "NAUTROUDS_LOG_LEVEL", "info", "Log level (debug, info, warn, error, dpanic, panic, fatal)")
+	tokenPtr := EnvString("token", "NAUTROUDS_TOKEN", "", "")
+	forceCleanPtr := EnvString("force-clean", "NAUTROUDS_FORCE_CLEAN", "false", "Force clean")
 
 	flag.Parse()
 
@@ -38,7 +38,7 @@ func Load() *Options {
 
 	return &Options{
 		ConfigPath:      *configPtr,
-		NtlcPath:        *ntlcPtr,
+		NtlcPath:        *ntucPtr,
 		ServicesDir:     *servicesDirPtr,
 		EntrypointDir:   *entrypointDirPtr,
 		EntrypointCount: entrypointCount,
