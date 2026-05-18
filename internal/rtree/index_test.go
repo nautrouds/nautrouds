@@ -60,7 +60,7 @@ func TestRouteTree_Search(t *testing.T) {
 		},
 		{
 			name:           "Wildcard Match - User Profile",
-			url:            "example.com/api/v1/users/jim123",
+			url:            "example.com/api/v1/users/john",
 			expectedSvc:    "user-profile-service",
 			expectedExists: true,
 			checkMethods:   rtree.MethodGet,
@@ -135,7 +135,7 @@ func TestRouteTree_Compression(t *testing.T) {
 	serviceID := tree.ActionMetadata[serviceIndex]
 	assert.Equal(t, "api-svc", tree.GetActionName(serviceID))
 
-	rootEdge := tree.Root['i']
+	rootEdge := tree.EdgePool['i']
 	assert.NotZero(t, rootEdge.TargetID, "Root index at 'i' should not be empty")
 
 	fragment := string(tree.FragmentPool[rootEdge.Offset:rootEdge.End])
@@ -166,14 +166,20 @@ func TestReverseHost(t *testing.T) {
 
 func TestPrintRouteTree(t *testing.T) {
 	nodes := []*rtree.RawNode{
-		{URL: "example.org/api/v1/user", Methods: "GET"},
-		{URL: "example.org/api/v1/post", Methods: "POST"},
-		{URL: "example.org/api/v2/config", Methods: "GET"},
-		{URL: "google.com/search", Methods: "GET"},
-		{URL: "google.com/images", Methods: "GET"},
-		{URL: "example.com/api/v1/*", Methods: "ANY"},
-		{URL: "example.com/**", Methods: "ANY"},
-		{URL: "example.com/**_list", Methods: "GET"},
+		// 1. Exact Matches & Versioning
+		{URL: "api.example.com/v1/users", Methods: "GET,POST"},
+		{URL: "api.example.com/v1/users/profile", Methods: "GET,PUT"},
+		{URL: "api.example.com/v2/settings", Methods: "GET"},
+		{URL: "api.example.com/v1/users/*", Methods: "GET,DELETE"},
+		{URL: "api.example.com/v1/users/*/posts/*", Methods: "GET"},
+		{URL: "api.example.com/v1/assets/**", Methods: "GET"},
+		{URL: "static.example.com/*", Methods: "GET"},
+		{URL: "auth.example.com/oauth/token", Methods: "POST"},
+		{URL: "github.com/:owner/:repo/contents/*", Methods: "GET"},
+		{URL: "api.example.com/v1/reports.json", Methods: "GET"},
+		{URL: "api.example.com/v1/reports.csv", Methods: "GET"},
+		{URL: "example.org/downloads/**/*.pdf", Methods: "GET"},
+		{URL: "localhost/healthz", Methods: "GET"},
 	}
 
 	tree := rtree.Build(nodes)
