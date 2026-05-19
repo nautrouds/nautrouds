@@ -55,7 +55,7 @@ type Edge struct {
 	// GraftRollback manages cursor adjustments during wildcard backtracking.
 	// If > 0: specifies the absolute number of bytes to roll back the URL cursor.
 	// If < 0: represents a bitwise NOT index (^GraftRollback) to retrieve the
-	// saved cursor state from cursorStack.
+	// saved cursor state from cursorCheckpoints.
 	GraftRollback int32
 }
 
@@ -88,8 +88,9 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 
 	firstChar := url[0]
 	var currentEdgeIdx uint16
-	var buf [16]int32
-	cursorStack := buf[:0]
+	var cursorCheckpoints [16]int32
+	var checkpointIdx int32
+
 	cursor := int32(0)
 
 	switch {
@@ -98,10 +99,10 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 		cursor++
 	case t.EdgePool[Wildcard].TargetID != 0:
 		currentEdgeIdx = uint16(Wildcard)
-		cursorStack = append(cursorStack, 0)
+		checkpointIdx++
 	case t.EdgePool[WildcardGreedy].TargetID != 0:
 		currentEdgeIdx = uint16(WildcardGreedy)
-		cursorStack = append(cursorStack, 0)
+		checkpointIdx++
 	default:
 		return nil, false
 	}
@@ -114,17 +115,17 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 		case Wildcard:
 			if edge.GraftRollback < 0 {
 				if node.EdgeCount == 0 {
-					cursorStack = cursorStack[:^edge.GraftRollback]
+					checkpointIdx = ^edge.GraftRollback
 				} else {
 					childEdge := &t.EdgePool[node.EdgeOffset+node.EdgeCount-1]
 					if t.FragmentPool[childEdge.Offset] != WildcardGreedy || childEdge.GraftRollback != edge.GraftRollback {
-						cursorStack = cursorStack[:^edge.GraftRollback]
+						checkpointIdx = ^edge.GraftRollback
 					}
 				}
 			}
 		case WildcardGreedy:
 			if edge.GraftRollback < 0 {
-				cursorStack = cursorStack[:^edge.GraftRollback]
+				checkpointIdx = ^edge.GraftRollback
 			}
 		default:
 			if cursor == urlLen && node.Methods != 0 {
@@ -147,9 +148,10 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 				case childEdge.GraftRollback > 0:
 					cursor -= childEdge.GraftRollback
 				case childEdge.GraftRollback < 0:
-					cursor = cursorStack[^childEdge.GraftRollback]
+					cursor = cursorCheckpoints[^childEdge.GraftRollback]
 				default:
-					cursorStack = append(cursorStack, cursor)
+					cursorCheckpoints[checkpointIdx] = cursor
+					checkpointIdx++
 				}
 				currentEdgeIdx = childEdgeIdx
 				matched = true
