@@ -1,15 +1,12 @@
 package proxy
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"nautrouds/internal/core/builtins"
-	"nautrouds/internal/core/builtins/builtinsmware"
-	"nautrouds/internal/core/builtins/virtualservices"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/registry"
+	"nautrouds/internal/core/tempresp"
 	"nautrouds/internal/interpolate"
 	"nautrouds/internal/rtree"
 	"nautrouds/internal/tags"
@@ -29,37 +26,6 @@ const (
 	ErrBadGateway  = "Bad Gateway"
 	ErrServiceUnav = "Service Unavailable"
 )
-
-// responseState wraps http.ResponseWriter to track activity, status code, and response size.
-type responseState struct {
-	http.ResponseWriter
-	status int
-	size   int64
-}
-
-func (rs *responseState) WriteHeader(code int) {
-	rs.status = code
-	rs.ResponseWriter.WriteHeader(code)
-}
-
-func (rs *responseState) Write(b []byte) (int, error) {
-	n, err := rs.ResponseWriter.Write(b)
-	rs.size += int64(n)
-	return n, err
-}
-
-func (rs *responseState) Flush() {
-	if f, ok := rs.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-func (rs *responseState) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if h, ok := rs.ResponseWriter.(http.Hijacker); ok {
-		return h.Hijack()
-	}
-	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
-}
 
 type Manager struct {
 	Tree     atomic.Pointer[rtree.RouteTree]
@@ -83,81 +49,6 @@ func (m *Manager) UpdateTree(newTree *rtree.RouteTree) {
 	metrics.Global.IncUpdates()
 }
 
-// resolveBuiltinMiddleware parses and caches functional middleware expressions.
-func (m *Manager) resolveBuiltinMiddleware(expr string) builtinsmware.HandlerFunc {
-	if h, ok := m.builtinCache.Load(expr); ok {
-		return h.(builtinsmware.HandlerFunc)
-	}
-
-	funcName, args, err := builtins.ParseDirective(expr)
-	if err != nil {
-		return nil
-	}
-
-	if factory, ok := builtinsmware.Registry[funcName]; ok {
-		handler := factory(args...)
-		m.builtinCache.Store(expr, handler)
-		return handler
-	}
-
-	return nil
-}
-
-func (m *Manager) resolveExternalMiddleware(expr string) (string, string, error) {
-	if h, ok := m.builtinCache.Load(expr); ok {
-		values := h.([]string)
-		return values[0], values[1], nil
-	}
-
-	funcName, args, err := builtins.ParseDirective(expr)
-	if err != nil {
-		return "", "", err
-	}
-
-	path := ""
-	if len(args) > 0 {
-		path = args[0]
-	}
-
-	m.builtinCache.Store(expr, []string{funcName, path})
-	return funcName, path, nil
-}
-
-// resolveVirtualService parses and caches functional virtual service expressions.
-func (m *Manager) resolveVirtualService(expr string) http.HandlerFunc {
-	// Special case for $services which needs access to registry state
-	if expr == "$services" {
-		return virtualservices.Discovery(m.Registry.GetState())
-	}
-
-	funcName, args, err := builtins.ParseDirective(expr)
-	if err != nil {
-		return nil
-	}
-
-	// Special case for $ping which needs access to registry and arguments
-	if funcName == "$ping" {
-		targetSvc := ""
-		if len(args) > 0 {
-			targetSvc = args[0]
-		}
-		nodes := m.Registry.GetNodes(targetSvc)
-		return virtualservices.Ping(targetSvc, nodes)
-	}
-
-	if h, ok := m.virtualCache.Load(expr); ok {
-		return h.(http.HandlerFunc)
-	}
-
-	if factory, ok := virtualservices.Registry[funcName]; ok {
-		handler := factory(args...)
-		m.virtualCache.Store(expr, handler)
-		return handler
-	}
-
-	return nil
-}
-
 func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	metrics.Global.IncRequests()
@@ -165,7 +56,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer metrics.Global.AddActive(-1)
 
 	// Wrap ResponseWriter to track activity, status, and size
-	trackedWriter := &responseState{ResponseWriter: w, status: http.StatusOK}
+	trackedWriter := newTrackedResponseWriter(w)
 
 	var finalServiceName string
 	var routePattern string
@@ -183,8 +74,10 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Route Lookup
-	lookupPath := host + r.URL.Path
-	node, exists := tree.Search(rtree.ReverseHost([]byte(lookupPath)))
+	lookupPath := fmt.Sprintf("%s%s", host, r.URL.Path)
+	lookupPathBytes := []byte(lookupPath)
+	rtree.ReverseHost(lookupPathBytes)
+	node, exists := tree.Search(lookupPathBytes)
 	if !exists {
 		routePattern = "404"
 		http.Error(trackedWriter, "Resource Not Found", http.StatusNotFound)
@@ -239,16 +132,22 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	tempResp := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+	defer tempresp.Pool.Put(tempResp)
+
 	// 3. Middleware Execution
 	for _, mwExpr := range resolvedMiddlewares {
+		tempResp.Setup(trackedWriter)
 
 		if strings.HasPrefix(mwExpr, "$") {
 			// Internal built-in middleware logic
 			if handler := m.resolveBuiltinMiddleware(mwExpr); handler != nil {
-				resp := builtinsmware.NewResponseWriter()
-				handler(resp, r)
-				if resp.GetCode() != http.StatusOK {
-					resp.WriteTo(trackedWriter)
+				handler(tempResp, r)
+				if tempResp.GetCode() != http.StatusOK {
+					if !tempResp.IsPassthrough() {
+						tempResp.WriteTo(trackedWriter)
+					}
 					return
 				}
 			} else {
@@ -271,16 +170,14 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			resp := builtinsmware.NewResponseWriter()
 			// External middleware (usually over UDS)
-
-			if !mw.ForwardMiddleware(resp, r, path) {
+			if !mw.ForwardMiddleware(tempResp, r, path) {
 				// If forwarding fails or is intercepted, stop execution
-				resp.WriteTo(trackedWriter)
 				return
 			}
 		}
 
+		tempResp.Reset()
 	}
 
 	finalServiceName = rawServiceName
