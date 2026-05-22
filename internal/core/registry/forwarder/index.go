@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"nautrouds/internal/core/builtins/builtinsmware"
 	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/tempresp"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -14,6 +14,14 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+var forbiddenHeaders = map[string]bool{
+	"Proxy-Authenticate":  true,
+	"Proxy-Authorization": true,
+	"Transfer-Encoding":   true,
+	"Connection":          true,
+	"Server":              true,
+}
 
 type FailureForwarder struct {
 	SocketPath string
@@ -94,7 +102,7 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 	return rp
 }
 
-func (f *Forwarder) ForwardMiddleware(w *builtinsmware.ResponseWriter, r *http.Request, path string) bool {
+func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, path string) bool {
 	if f.isFailed.Load() {
 		w.Reply("Service Unavailable", http.StatusServiceUnavailable)
 		return false
@@ -135,20 +143,24 @@ func (f *Forwarder) ForwardMiddleware(w *builtinsmware.ResponseWriter, r *http.R
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		maps.Copy(w.Header(), response.Header)
-		w.ReplyReader(response.Body, response.StatusCode)
-		return false
+	for key := range forbiddenHeaders {
+		response.Header.Del(key)
 	}
 
-	for k, vv := range response.Header {
-		r.Header.Del(k)
-		for _, v := range vv {
-			r.Header.Add(k, v)
+	if response.StatusCode == http.StatusNoContent {
+		for key, values := range response.Header {
+			for _, value := range values {
+				r.Header.Add(key, value)
+			}
 		}
+		w.WriteHeader(http.StatusNoContent)
+		return true
 	}
 
-	return true
+	w.EnablePassthrough()
+	maps.Copy(w.Header(), response.Header)
+	w.ReplyReader(response.Body, response.StatusCode)
+	return false
 }
 
 func (f *Forwarder) Forward(w http.ResponseWriter, r *http.Request) {

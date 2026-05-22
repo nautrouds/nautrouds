@@ -3,7 +3,7 @@ package forwarder
 import (
 	"context"
 	"io"
-	"nautrouds/internal/core/builtins/builtinsmware"
+	"nautrouds/internal/core/tempresp"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -69,7 +69,7 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("X-Auth") == "valid" {
 				w.Header().Set("X-User-ID", "123")
-				w.WriteHeader(http.StatusOK)
+				w.WriteHeader(http.StatusNoContent)
 			} else {
 				w.WriteHeader(http.StatusUnauthorized)
 			}
@@ -84,19 +84,20 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 	t.Run("Authorized", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://example.com/", nil)
 		req.Header.Set("X-Auth", "valid")
-		w := builtinsmware.NewResponseWriter()
+		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+		defer tempresp.Pool.Put(w)
 
 		ok := f.ForwardMiddleware(w, req, "/")
-		assert.Equal(t, w.GetCode(), http.StatusOK)
 		assert.True(t, ok)
-		assert.Equal(t, http.StatusOK, w.GetCode())
+		assert.Equal(t, http.StatusNoContent, w.GetCode())
 		assert.Equal(t, "123", req.Header.Get("X-User-ID"))
 	})
 
 	t.Run("Unauthorized", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://example.com/", nil)
 		req.Header.Set("X-Auth", "invalid")
-		w := builtinsmware.NewResponseWriter()
+		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+		defer tempresp.Pool.Put(w)
 
 		ok := f.ForwardMiddleware(w, req, "/")
 		assert.NotEqual(t, w, http.StatusOK)
@@ -136,10 +137,11 @@ func TestForwarder_FailureReporting(t *testing.T) {
 
 	t.Run("ForwardMiddleware Failure", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		w := builtinsmware.NewResponseWriter()
+		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+		defer tempresp.Pool.Put(w)
 
 		ok := f.ForwardMiddleware(w, req, "/")
-		assert.NotEqual(t, w.GetCode(), http.StatusOK)
+		assert.NotEqual(t, w.GetCode(), http.StatusNoContent)
 		assert.False(t, ok)
 
 		select {
