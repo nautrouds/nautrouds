@@ -10,7 +10,9 @@ import (
 )
 
 func prepareURL(url string) []byte {
-	return rtree.ReverseHost([]byte(url))
+	urlBytes := []byte(url)
+	rtree.ReverseHost(urlBytes)
+	return urlBytes
 }
 
 func getServiceName(tree *rtree.RouteTree, actionIndex uint32) string {

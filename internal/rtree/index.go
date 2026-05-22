@@ -229,7 +229,7 @@ func Build(rawNodes []*RawNode) *RouteTree {
 	for _, raw := range rawNodes {
 		url := wildcardReg.ReplaceAll([]byte(raw.URL), []byte{WildcardGreedy})
 		url = bytes.ReplaceAll(url, []byte("*"), []byte{Wildcard})
-		url = ReverseHost(url)
+		ReverseHost(url)
 		methodMask := parseMethods(raw.Methods)
 		tagMask := tags.Analyze(raw.Tags)
 
@@ -582,21 +582,27 @@ func matchMethodToken(m string) uint16 {
 }
 
 // ReverseHost reverses the host part of the URL for better indexing (e.g., com.google.www)
-func ReverseHost(url []byte) []byte {
-	slashIdx := slices.Index(url, '/')
-	if slashIdx == -1 {
-		slashIdx = len(url)
-	}
+func ReverseHost(url []byte) {
+	slashIdx := bytes.IndexByte(url, '/')
 	if slashIdx <= 1 {
-		return url
+		if slashIdx == -1 {
+			slashIdx = len(url)
+		}
+		if slashIdx <= 1 {
+			return
+		}
 	}
 
-	hostPart := string(url[:slashIdx])
-	segments := strings.Split(hostPart, ".")
-	slices.Reverse(segments)
+	host := url[:slashIdx]
+	slices.Reverse(host)
 
-	newHost := strings.Join(segments, ".")
-	return append([]byte(newHost), url[slashIdx:]...)
+	start := 0
+	for i := 0; i <= len(host); i++ {
+		if i == len(host) || host[i] == '.' {
+			slices.Reverse(host[start:i])
+			start = i + 1
+		}
+	}
 }
 
 func (t *RouteTree) PrintTree() {

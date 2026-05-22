@@ -93,8 +93,9 @@ func TestRouteTree_Search(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			urlBytes := rtree.ReverseHost([]byte(tt.url))
-			node, exists := tree.Search(urlBytes)
+			url := []byte(tt.url)
+			rtree.ReverseHost(url)
+			node, exists := tree.Search(url)
 
 			if !tt.expectedExists {
 				assert.False(t, exists, "Expected no match for URL: %s", tt.url)
@@ -126,9 +127,9 @@ func TestRouteTree_Compression(t *testing.T) {
 	tree := rtree.Build(rawNodes)
 
 	url := []byte("nautrouds.io/api/v1")
-	urlBytes := rtree.ReverseHost(url)
+	rtree.ReverseHost(url)
 
-	node, exists := tree.Search(urlBytes)
+	node, exists := tree.Search(url)
 	assert.True(t, exists, "Route should be searchable after compression")
 
 	serviceIndex := tree.ActionMetadata[node.ActionIndex]
@@ -160,7 +161,9 @@ func TestReverseHost(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, tt.expected, string(rtree.ReverseHost([]byte(tt.input))))
+		input := []byte(tt.input)
+		rtree.ReverseHost(input)
+		assert.Equal(t, tt.expected, string(input), "ReverseHost failed for input: %s", tt.input)
 	}
 }
 
