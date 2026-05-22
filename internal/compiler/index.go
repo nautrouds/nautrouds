@@ -56,7 +56,7 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 			case 0:
 				continue
 			case 1:
-				rule.Methods, rule.URL, rule.Service = "*", "*/[|*]", fields[0]
+				rule.Methods, rule.URL, rule.Service = "*", "**", fields[0]
 			case 2:
 				rule.Methods, rule.URL, rule.Service = "*", fields[0], fields[1]
 			case 3:

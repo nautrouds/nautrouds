@@ -29,7 +29,8 @@ example.com/api/v3 svc-3
 	require.NotNil(t, tree)
 
 	t.Run("Middleware Inheritance", func(t *testing.T) {
-		url := rtree.ReverseHost([]byte("example.com/api/v1"))
+		url := []byte("example.com/api/v1")
+		rtree.ReverseHost(url)
 		node, exists := tree.Search(url)
 		require.True(t, exists)
 
@@ -48,14 +49,16 @@ example.com/api/v3 svc-3
 	})
 
 	t.Run("Method Filtering", func(t *testing.T) {
-		url := rtree.ReverseHost([]byte("example.com/api/v2"))
+		url := []byte("example.com/api/v2")
+		rtree.ReverseHost(url)
 		node, exists := tree.Search(url)
 		require.True(t, exists)
 		assert.Equal(t, rtree.MethodGet, node.Methods&rtree.MethodGet)
 	})
 
 	t.Run("Default Method Star", func(t *testing.T) {
-		url := rtree.ReverseHost([]byte("example.com/api/v3"))
+		url := []byte("example.com/api/v3")
+		rtree.ReverseHost(url)
 		node, exists := tree.Search(url)
 		require.True(t, exists)
 		assert.Equal(t, rtree.MethodAny, node.Methods)
@@ -72,7 +75,9 @@ GET [a|b].io/api svc-expanded
 	// Verify both expanded paths point to the same service
 	urls := []string{"a.io/api", "b.io/api"}
 	for _, u := range urls {
-		node, exists := tree.Search(rtree.ReverseHost([]byte(u)))
+		url := []byte(u)
+		rtree.ReverseHost(url)
+		node, exists := tree.Search(url)
 		assert.True(t, exists, "Path %s should exist", u)
 		serviceIndex := tree.ActionMetadata[node.ActionIndex]
 		serviceID := tree.ActionMetadata[serviceIndex]
