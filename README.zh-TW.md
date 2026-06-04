@@ -1,6 +1,11 @@
-# Nautrouds
-
 [English](README.md) | 繁體中文
+
+<div align="center">
+	<img src="./docs/icon.webp" width="240" height="240" alt="Nautrouds logo" />
+	<h1>Nautrouds</h1>
+</div>
+
+---
 
 Nautrouds 是一個動態服務管理與代理系統，專為高可用性的請求路由與服務發現而設計。透過 Unix Domain Sockets (UDS) 與設定熱重載，實現流暢的流量管理。
 
