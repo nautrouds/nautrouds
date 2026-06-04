@@ -1,6 +1,11 @@
-# Nautrouds
+English | [繁體中文](README.zh-TW.md)
 
-English | [中文](README.zh-TW.md)
+<div align="center">
+	<img src="./docs/icon.webp" width="240" height="240" alt="Nautrouds logo" />
+	<h1>Nautrouds</h1>
+</div>
+
+---
 
 Nautrouds is a dynamic service management and proxy system designed for high-availability request routing and service discovery. It facilitates seamless traffic management through Unix Domain Sockets (UDS) and hot-reloading configurations.
 
