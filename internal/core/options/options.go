@@ -9,7 +9,7 @@ import (
 
 type Options struct {
 	ConfigPath      string
-	NtlcPath        string
+	NtucPath        string
 	ServicesDir     string
 	EntrypointDir   string
 	EntrypointCount int
@@ -20,7 +20,7 @@ type Options struct {
 
 func Load() *Options {
 	configPtr := EnvString("config", "NAUTROUDS_CONFIG", "nautrouds.ntu", "Path to config file (.ntu or Ntufile)")
-	ntucPtr := EnvString("ntuc", "NAUTROUDS_NTLC", "ntuc", "Path to ntuc executable")
+	ntucPtr := EnvString("ntuc", "NAUTROUDS_NTUC", "ntuc", "Path to ntuc executable")
 	servicesDirPtr := EnvString("services", "NAUTROUDS_SERVICES_DIR", "/var/run/nautrouds/services", "Path to services directory")
 	entrypointDirPtr := EnvString("entrypoint-dir", "NAUTROUDS_ENTRYPOINT_DIR", "/var/run/nautrouds/entrypoints", "Path to entrypoint directory")
 	entrypointCountPtr := EnvString("entrypoint-count", "NAUTROUDS_ENTRYPOINT_COUNT", "1", "Number of entrypoint instances to spawn")
@@ -38,7 +38,7 @@ func Load() *Options {
 
 	return &Options{
 		ConfigPath:      *configPtr,
-		NtlcPath:        *ntucPtr,
+		NtucPath:        *ntucPtr,
 		ServicesDir:     *servicesDirPtr,
 		EntrypointDir:   *entrypointDirPtr,
 		EntrypointCount: entrypointCount,

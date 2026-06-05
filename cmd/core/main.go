@@ -63,7 +63,7 @@ func main() {
 	manager := proxy.NewManager(reg)
 
 	// 3. Initialize Config Watcher (Handles load & hot-reload)
-	cw, err := configwatcher.NewConfigWatcher(opts.ConfigPath, opts.NtlcPath, manager)
+	cw, err := configwatcher.NewConfigWatcher(opts.ConfigPath, opts.NtucPath, manager)
 	if err != nil {
 		logs.Out.Error("Failed to initialize config watcher", zap.Error(err))
 		return
