@@ -126,11 +126,10 @@ func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, o
 	if hasToken {
 		token = fmt.Sprintf("-%s-", opts.Token)
 	}
-	if hasToken || opts.ForceClean {
-		err := cleanLegacySockets(opts.EntrypointDir, token, opts.ForceClean)
-		if err != nil {
-			return fmt.Errorf("failed to clean legacy sockets: %w", err)
-		}
+
+	err := cleanLegacySockets(opts.EntrypointDir, token)
+	if err != nil {
+		return fmt.Errorf("failed to clean legacy sockets: %w", err)
 	}
 
 	socketPathMap := make(map[string]context.CancelFunc, opts.EntrypointCount)
@@ -174,7 +173,7 @@ func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, o
 	return nil
 }
 
-func cleanLegacySockets(dir string, token string, force bool) error {
+func cleanLegacySockets(dir string, token string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -184,17 +183,6 @@ func cleanLegacySockets(dir string, token string, force bool) error {
 			continue
 		}
 		filePath := filepath.Join(dir, entry.Name())
-		if force {
-			err := os.Remove(filePath)
-			if err != nil {
-				logs.Out.Error("Failed to remove entrypoint", zap.Error(err))
-			}
-			continue
-		}
-		if !strings.Contains(entry.Name(), token) {
-			continue
-		}
-
 		err := os.Remove(filePath)
 		if err != nil {
 			return err
