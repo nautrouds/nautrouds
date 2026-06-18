@@ -48,7 +48,9 @@ func main() {
 	err := lifemanaged.Run(func(lc *lifecycle.LifecycleManager) error {
 		return run(lc, opts)
 	})
-	logs.Out.Error("Error occurred during startup", zap.Error(err))
+	if err != nil {
+		logs.Out.Error("Error occurred during startup", zap.Error(err))
+	}
 }
 
 func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
