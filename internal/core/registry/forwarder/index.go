@@ -59,6 +59,7 @@ func New(serviceName, nodePath string, onFailure chan FailureForwarder) *Forward
 	}
 
 	f.reverseProxy = createReverseProxy(serviceName, nodePath, transport, onFailure, &f.isFailed)
+	go probeSocket(nodePath, onFailure, &f.isFailed)
 
 	return f
 }
