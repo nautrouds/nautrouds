@@ -15,7 +15,7 @@ type Options struct {
 	EntrypointCount int
 	LogLevel        string
 	Token           string
-	ForceClean      bool
+	MetricsPath     string
 }
 
 func Load() *Options {
@@ -26,7 +26,7 @@ func Load() *Options {
 	entrypointCountPtr := EnvString("entrypoint-count", "NAUTROUDS_ENTRYPOINT_COUNT", "1", "Number of entrypoint instances to spawn")
 	logLevelPtr := EnvString("log-level", "NAUTROUDS_LOG_LEVEL", "info", "Log level (debug, info, warn, error, dpanic, panic, fatal)")
 	tokenPtr := EnvString("token", "NAUTROUDS_TOKEN", "", "")
-	forceCleanPtr := EnvString("force-clean", "NAUTROUDS_FORCE_CLEAN", "false", "Force clean")
+	metricsPathPtr := EnvString("metrics-socket", "NAUTROUDS_METRICS_SOCKET", "", "Metrics collector socket path (relative to services dir)")
 
 	flag.Parse()
 
@@ -44,7 +44,7 @@ func Load() *Options {
 		EntrypointCount: entrypointCount,
 		LogLevel:        *logLevelPtr,
 		Token:           reg.ReplaceAllString(*tokenPtr, "_"),
-		ForceClean:      (*forceCleanPtr) == "true",
+		MetricsPath:     *metricsPathPtr,
 	}
 }
 

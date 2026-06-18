@@ -6,7 +6,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gofrs/flock v0.13.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
-	github.com/lucap9056/go-lifecycle v1.2.0
+	github.com/lucap9056/go-lifecycle v1.4.0
 	github.com/nautrouds/tentacle-metrics v1.1.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sigurn/crc16 v0.0.0-20240131213347-83fcde1e29d1
