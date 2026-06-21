@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,9 +46,23 @@ func TestRegistry_Scan(t *testing.T) {
 	v2Path := filepath.Join(apiDir, "v2.sock")
 	appPath := filepath.Join(webDir, "app.sock")
 
-	os.WriteFile(v1Path, []byte(""), 0644)
-	os.WriteFile(v2Path, []byte(""), 0644)
-	os.WriteFile(appPath, []byte(""), 0644)
+	v1Ln, err := net.Listen("unix", v1Path)
+	if err != nil {
+		t.Fatalf("failed to listen on v1 socket: %v", err)
+	}
+	defer v1Ln.Close()
+
+	v2Ln, err := net.Listen("unix", v2Path)
+	if err != nil {
+		t.Fatalf("failed to listen on v2 socket: %v", err)
+	}
+	defer v2Ln.Close()
+
+	appLn, err := net.Listen("unix", appPath)
+	if err != nil {
+		t.Fatalf("failed to listen on app socket: %v", err)
+	}
+	defer appLn.Close()
 
 	err = reg.Scan("")
 	if err != nil {
@@ -63,6 +78,7 @@ func TestRegistry_Scan(t *testing.T) {
 	}
 
 	// Test case 3: Targeted scan
+	v1Ln.Close()
 	os.Remove(v1Path)
 	err = reg.Scan("api")
 	if err != nil {
@@ -80,6 +96,7 @@ func TestRegistry_Scan(t *testing.T) {
 	}
 
 	// Test case 4: Remove all nodes of a service
+	v2Ln.Close()
 	os.Remove(v2Path)
 	err = reg.Scan("api")
 	if err != nil {
