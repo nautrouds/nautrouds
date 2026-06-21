@@ -93,25 +93,7 @@ func Redirect(args ...string) http.HandlerFunc {
 func Discovery(state map[string][]string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, "{\n")
-		i := 0
-		for svc, nodes := range state {
-			fmt.Fprintf(w, "  \"%s\": [\n", svc)
-			for j, node := range nodes {
-				fmt.Fprintf(w, "    \"%s\"", node)
-				if j < len(nodes)-1 {
-					fmt.Fprintf(w, ",")
-				}
-				fmt.Fprintf(w, "\n")
-			}
-			fmt.Fprintf(w, "  ]")
-			if i < len(state)-1 {
-				fmt.Fprintf(w, ",")
-			}
-			fmt.Fprintf(w, "\n")
-			i++
-		}
-		fmt.Fprintf(w, "}\n")
+		json.NewEncoder(w).Encode(state)
 	}
 }
 
