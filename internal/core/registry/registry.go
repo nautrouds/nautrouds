@@ -30,7 +30,7 @@ type Registry struct {
 
 type ServiceSet struct {
 	nodes []string
-	index uint32
+	index atomic.Uint32
 }
 
 type nodeContext struct {
@@ -109,6 +109,16 @@ func (r *Registry) moveToUnhealthyUnsafe(serviceName, nodePath string) {
 	}
 }
 
+func (r *Registry) NodeCount(serviceName string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ss, ok := r.services[serviceName]
+	if !ok {
+		return 0
+	}
+	return len(ss.nodes)
+}
+
 // GetNodes returns a copy of the current physical nodes for a service
 func (r *Registry) GetNodes(serviceName string) []string {
 	r.mu.RLock()
@@ -141,7 +151,7 @@ func (r *Registry) GetForwarder(serviceName string) (*forwarder.Forwarder, error
 		return nil, os.ErrNotExist
 	}
 
-	idx := atomic.AddUint32(&ss.index, 1) % uint32(len(ss.nodes))
+	idx := ss.index.Add(1) % uint32(len(ss.nodes))
 	nodePath := ss.nodes[idx]
 
 	r.mu.RLock()
@@ -153,6 +163,30 @@ func (r *Registry) GetForwarder(serviceName string) (*forwarder.Forwarder, error
 	}
 
 	return ctx.forwarder, nil
+}
+
+// GetForwarders returns all healthy forwarders for a service, ordered starting
+// from the round-robin position. The index advances only once per call so that
+// retry loops within a single request visit each node exactly once.
+func (r *Registry) GetForwarders(serviceName string) []*forwarder.Forwarder {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	ss, exists := r.services[serviceName]
+	if !exists || len(ss.nodes) == 0 {
+		return nil
+	}
+
+	n := len(ss.nodes)
+	start := int(ss.index.Add(1)) % n
+	result := make([]*forwarder.Forwarder, 0, n)
+	for i := range n {
+		ctx, ok := r.nodeMap[ss.nodes[(start+i)%n]]
+		if ok {
+			result = append(result, ctx.forwarder)
+		}
+	}
+	return result
 }
 
 // Scan satisfies the Watcher's expectation. It performs either a full scan
@@ -272,10 +306,18 @@ func (r *Registry) scanService(serviceName string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// 1. Identify nodes to remove
+	// 1. Identify nodes to remove (healthy and unhealthy)
 	currentSet, exists := r.services[serviceName]
 	if exists {
 		for _, oldNode := range currentSet.nodes {
+			if !slices.Contains(discoveredNodes, oldNode) {
+				r.removeNodeUnsafe(oldNode, false)
+				r.removeFromUnhealthyUnsafe(serviceName, oldNode)
+			}
+		}
+	}
+	if us, ok := r.unhealthy[serviceName]; ok {
+		for _, oldNode := range slices.Clone(us.nodes) {
 			if !slices.Contains(discoveredNodes, oldNode) {
 				r.removeNodeUnsafe(oldNode, false)
 				r.removeFromUnhealthyUnsafe(serviceName, oldNode)
@@ -389,6 +431,15 @@ func (r *Registry) RetryUnhealthy() {
 
 				r.mu.Lock()
 				r.promoteToHealthyUnsafe(svcName, nodePath)
+				r.mu.Unlock()
+			} else if errors.Is(err, syscall.ENOENT) {
+				logs.Out.Info("Node socket removed, cleaning up",
+					zap.String("service", svcName),
+					zap.String("socketPath", nodePath))
+
+				r.mu.Lock()
+				r.removeNodeUnsafe(nodePath, false)
+				r.removeFromUnhealthyUnsafe(svcName, nodePath)
 				r.mu.Unlock()
 			} else {
 				logs.Out.Debug("Node still unhealthy",

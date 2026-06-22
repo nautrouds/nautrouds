@@ -15,6 +15,13 @@ import (
 	"time"
 )
 
+type proxyErrorKey struct{}
+
+var (
+	ErrNodeUnavailable  = errors.New("Node Unavailable")
+	ErrMiddlewareBlocked = errors.New("Middleware Blocked")
+)
+
 var forbiddenHeaders = map[string]bool{
 	"Proxy-Authenticate":  true,
 	"Proxy-Authorization": true,
@@ -79,8 +86,14 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 			if isFailed.CompareAndSwap(false, true) {
 				onFailure <- FailureForwarder{SocketPath: nodePath, Error: opErr.Err}
 			}
+			err = ErrNodeUnavailable
 		}
-		http.Error(w, "Node Failure", http.StatusBadGateway)
+
+		if errTarget, ok := r.Context().Value(proxyErrorKey{}).(*error); ok {
+			*errTarget = err
+		} else {
+			http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		}
 	}
 
 	// Track upstream duration
@@ -103,10 +116,13 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 	return rp
 }
 
-func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, path string) bool {
+// ForwardMiddleware sends a GET request to the middleware service.
+// Returns nil if the middleware approved (204), ErrNodeUnavailable if the node
+// is unreachable (caller should retry with another node), or ErrMiddlewareBlocked
+// if the middleware intentionally blocked the request (response already written to w).
+func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, path string) error {
 	if f.isFailed.Load() {
-		w.Reply("Service Unavailable", http.StatusServiceUnavailable)
-		return false
+		return ErrNodeUnavailable
 	}
 
 	f.wg.Add(1)
@@ -122,8 +138,7 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 	}
 	request, err := http.NewRequestWithContext(r.Context(), "GET", "http://localhost"+path, nil)
 	if err != nil {
-		w.Reply("Middleware Init Error", http.StatusInternalServerError)
-		return false
+		return ErrNodeUnavailable
 	}
 
 	request.Header = r.Header.Clone()
@@ -139,8 +154,7 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 				f.onFailure <- FailureForwarder{SocketPath: f.socketPath, Error: opErr.Err}
 			}
 		}
-		w.Reply("Middleware Error", http.StatusInternalServerError)
-		return false
+		return ErrNodeUnavailable
 	}
 	defer response.Body.Close()
 
@@ -155,24 +169,33 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)
-		return true
+		return nil
 	}
 
 	w.EnablePassthrough()
 	maps.Copy(w.Header(), response.Header)
 	w.ReplyReader(response.Body, response.StatusCode)
-	return false
+	return ErrMiddlewareBlocked
 }
 
-func (f *Forwarder) Forward(w http.ResponseWriter, r *http.Request) {
+func (f *Forwarder) Forward(w http.ResponseWriter, r *http.Request) error {
 	if f.isFailed.Load() {
-		http.Error(w, "Service Unavailable (Node Failed)", http.StatusServiceUnavailable)
-		return
+		return ErrNodeUnavailable
 	}
 	f.wg.Add(1)
 	defer f.wg.Done()
 
-	f.reverseProxy.ServeHTTP(w, r)
+	var proxyErr error
+	ctx := context.WithValue(r.Context(), proxyErrorKey{}, &proxyErr)
+
+	reqClone := r.Clone(ctx)
+	f.reverseProxy.ServeHTTP(w, reqClone)
+
+	if proxyErr != nil {
+		return proxyErr
+	}
+
+	return nil
 }
 
 func (f *Forwarder) TryReconnect() error {

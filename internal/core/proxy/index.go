@@ -6,6 +6,7 @@ import (
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/registry"
+	"nautrouds/internal/core/registry/forwarder"
 	"nautrouds/internal/core/tempresp"
 	"nautrouds/internal/interpolate"
 	"nautrouds/internal/rtree"
@@ -163,16 +164,26 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			mw, err := m.Registry.GetForwarder(funcName)
-			if err != nil {
-				logs.Out.Error("Middleware Resolution Failed", zap.Error(err), zap.String("expr", mwExpr))
-				http.Error(trackedWriter, ErrInternal, http.StatusInternalServerError)
+			mwNodes := m.Registry.GetForwarders(funcName)
+			approved := false
+			for _, mw := range mwNodes {
+				mwErr := mw.ForwardMiddleware(tempResp, r, path)
+				if mwErr == nil {
+					approved = true
+					break
+				}
+				if mwErr == forwarder.ErrNodeUnavailable {
+					continue
+				}
+				// Middleware intentionally blocked — response already written to tempResp.
+				if !tempResp.IsPassthrough() {
+					tempResp.WriteTo(trackedWriter)
+				}
 				return
 			}
-
-			// External middleware (usually over UDS)
-			if !mw.ForwardMiddleware(tempResp, r, path) {
-				// If forwarding fails or is intercepted, stop execution
+			if !approved {
+				logs.Out.Warn("Middleware Service Unavailable", zap.String("expr", mwExpr))
+				http.Error(trackedWriter, ErrServiceUnav, http.StatusServiceUnavailable)
 				return
 			}
 		}
@@ -198,14 +209,19 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Load Balancing (Protected by RLock)
-	service, err := m.Registry.GetForwarder(finalServiceName)
-	if err != nil {
-		logs.Out.Warn("Backend Service Unavailable", zap.String("service", finalServiceName), zap.Error(err))
-		http.Error(trackedWriter, ErrServiceUnav, http.StatusServiceUnavailable)
+	// 5. Load Balancing — round-robin picks the start; retry walks remaining nodes.
+	for _, service := range m.Registry.GetForwarders(finalServiceName) {
+		if err := service.Forward(trackedWriter, r); err != nil {
+			if err == forwarder.ErrNodeUnavailable {
+				continue
+			}
+			http.Error(w, ErrBadGateway, http.StatusBadGateway)
+			return
+		}
 		return
 	}
-	service.Forward(trackedWriter, r)
+	logs.Out.Warn("Backend Service Unavailable", zap.String("service", finalServiceName))
+	http.Error(trackedWriter, ErrServiceUnav, http.StatusServiceUnavailable)
 }
 
 func (m *Manager) StartUDSListener(ctx context.Context, socketPath string) error {

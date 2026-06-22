@@ -87,8 +87,8 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
 		defer tempresp.Pool.Put(w)
 
-		ok := f.ForwardMiddleware(w, req, "/")
-		assert.True(t, ok)
+		err := f.ForwardMiddleware(w, req, "/")
+		assert.NoError(t, err)
 		assert.Equal(t, http.StatusNoContent, w.GetCode())
 		assert.Equal(t, "123", req.Header.Get("X-User-ID"))
 	})
@@ -99,9 +99,8 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
 		defer tempresp.Pool.Put(w)
 
-		ok := f.ForwardMiddleware(w, req, "/")
-		assert.NotEqual(t, w, http.StatusOK)
-		assert.False(t, ok)
+		err := f.ForwardMiddleware(w, req, "/")
+		assert.Equal(t, ErrMiddlewareBlocked, err)
 		assert.Equal(t, http.StatusUnauthorized, w.GetCode())
 	})
 }
@@ -120,7 +119,8 @@ func TestForwarder_FailureReporting(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://example.com/", nil)
 		w := httptest.NewRecorder()
 
-		f.Forward(w, req)
+		err := f.Forward(w, req)
+		assert.Equal(t, ErrNodeUnavailable, err)
 
 		select {
 		case failure := <-onFailure:
@@ -129,8 +129,6 @@ func TestForwarder_FailureReporting(t *testing.T) {
 		case <-time.After(1 * time.Second):
 			t.Fatal("timed out waiting for failure report")
 		}
-
-		assert.Equal(t, http.StatusBadGateway, w.Code)
 	})
 
 	f.isFailed.Store(false)
@@ -140,9 +138,8 @@ func TestForwarder_FailureReporting(t *testing.T) {
 		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
 		defer tempresp.Pool.Put(w)
 
-		ok := f.ForwardMiddleware(w, req, "/")
-		assert.NotEqual(t, w.GetCode(), http.StatusNoContent)
-		assert.False(t, ok)
+		err := f.ForwardMiddleware(w, req, "/")
+		assert.Equal(t, ErrNodeUnavailable, err)
 
 		select {
 		case failure := <-onFailure:
