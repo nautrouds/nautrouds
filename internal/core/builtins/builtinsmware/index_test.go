@@ -177,7 +177,7 @@ func TestIPAllow_InvalidCIDR_FallsBackToInvalidMiddleware(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.GetCode())
+	assert.Equal(t, http.StatusInternalServerError, w.GetCode())
 }
 
 func TestIPAllow_WrongArgCount_FallsBackToInvalidMiddleware(t *testing.T) {
@@ -185,7 +185,7 @@ func TestIPAllow_WrongArgCount_FallsBackToInvalidMiddleware(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.GetCode())
+	assert.Equal(t, http.StatusInternalServerError, w.GetCode())
 }
 
 func TestLog_DoesNotPanic(t *testing.T) {
@@ -200,7 +200,7 @@ func TestInvalidMiddleware(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	builtinsmware.InvalidMiddleware(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.GetCode())
+	assert.Equal(t, http.StatusInternalServerError, w.GetCode())
 }
 
 func TestIsValid(t *testing.T) {

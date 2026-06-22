@@ -16,7 +16,7 @@ type MiddlewareFactory func(args ...string) HandlerFunc
 type HandlerFunc = func(*tempresp.ResponseWriter, *http.Request)
 
 func InvalidMiddleware(w *tempresp.ResponseWriter, r *http.Request) {
-	w.Reply("Invalid Middleware", http.StatusBadRequest)
+	w.Reply("Internal Server Error", http.StatusInternalServerError)
 }
 
 // --- Header Operations ---
@@ -108,7 +108,7 @@ func IPAllow(args ...string) HandlerFunc {
 		ipStr, _, _ := net.SplitHostPort(r.RemoteAddr)
 		ip := net.ParseIP(ipStr)
 		if !ipNet.Contains(ip) {
-			w.Reply("Forbidden: IP not allowed", http.StatusForbidden)
+			w.Reply("Forbidden", http.StatusForbidden)
 		}
 	}
 }
