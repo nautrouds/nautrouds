@@ -180,6 +180,7 @@ func TestRetryUnhealthy_SocketDown_NodeStaysUnhealthy(t *testing.T) {
 	reg.nodeMap[socketPath] = &nodeContext{serviceName: "svc", forwarder: f}
 	reg.unhealthy["svc"] = &ServiceSet{nodes: []string{socketPath}}
 	reg.mu.Unlock()
+	os.WriteFile(socketPath, nil, 0555)
 
 	reg.RetryUnhealthy()
 
