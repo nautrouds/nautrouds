@@ -18,8 +18,9 @@ func newTrackedResponseWriter(w http.ResponseWriter) *trackedResponseWriter {
 // trackedResponseWriter wraps http.ResponseWriter to track activity, status code, and response size.
 type trackedResponseWriter struct {
 	http.ResponseWriter
-	status int
-	size   int64
+	status   int
+	size     int64
+	hijacked bool
 }
 
 func (r *trackedResponseWriter) WriteHeader(code int) {
@@ -41,7 +42,11 @@ func (r *trackedResponseWriter) Flush() {
 
 func (r *trackedResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := r.ResponseWriter.(http.Hijacker); ok {
-		return h.Hijack()
+		conn, rw, err := h.Hijack()
+		if err == nil {
+			r.hijacked = true
+		}
+		return conn, rw, err
 	}
 	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
 }

@@ -63,6 +63,9 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var routePattern string
 
 	defer func() {
+		if trackedWriter.hijacked {
+			return
+		}
 		duration := time.Since(start).Seconds()
 		metrics.Global.RequestDuration.WithLabelValues(r.Method, routePattern).Observe(duration)
 	}()
