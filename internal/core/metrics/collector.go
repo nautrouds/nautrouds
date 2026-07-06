@@ -155,8 +155,14 @@ func (c *Collector) processPayload(data []byte) {
 					msg.TentacleId, msg.Service,
 				)
 				if len(m.Buckets) > 0 {
+					var prevCount uint64
 					for _, bucket := range m.Buckets {
-						for range bucket.Count {
+						if bucket.Count <= prevCount {
+							continue
+						}
+						delta := bucket.Count - prevCount
+						prevCount = bucket.Count
+						for range delta {
 							observer.Observe(bucket.Le)
 						}
 					}
