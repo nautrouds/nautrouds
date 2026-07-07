@@ -6,13 +6,31 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 )
 
 var _ http.ResponseWriter = (*trackedResponseWriter)(nil)
 var _ io.Writer = (*trackedResponseWriter)(nil)
 
+var trackedResponseWriterPool = sync.Pool{
+	New: func() any {
+		return &trackedResponseWriter{}
+	},
+}
+
 func newTrackedResponseWriter(w http.ResponseWriter) *trackedResponseWriter {
-	return &trackedResponseWriter{ResponseWriter: w, status: http.StatusOK}
+	t := trackedResponseWriterPool.Get().(*trackedResponseWriter)
+	t.ResponseWriter = w
+	t.status = http.StatusOK
+	t.size = 0
+	t.hijacked = false
+	return t
+}
+
+// release returns the writer to the pool. Callers must not use it afterwards.
+func (r *trackedResponseWriter) release() {
+	r.ResponseWriter = nil
+	trackedResponseWriterPool.Put(r)
 }
 
 // trackedResponseWriter wraps http.ResponseWriter to track activity, status code, and response size.
