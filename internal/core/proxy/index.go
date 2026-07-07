@@ -200,6 +200,9 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if opCount := tree.ActionMetadata[serviceMetadataIndex+1]; opCount > 0 {
 		offset := serviceMetadataIndex + 2
 		ops := tree.ActionMetadata[offset : offset+opCount]
+		if interpolator == nil {
+			interpolator = interpolate.New(r)
+		}
 		finalServiceName = interpolator.Replace(rawServiceName, ops)
 		isStaticService = false
 	}
