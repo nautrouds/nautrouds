@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"nautrouds/internal/core/builtins/builtinsmware"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/registry"
@@ -15,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,24 +29,20 @@ const (
 )
 
 type Manager struct {
-	Tree     atomic.Pointer[rtree.RouteTree]
+	State    atomic.Pointer[Generation]
 	Registry *registry.Registry
-
-	middlewareCache sync.Map // map[string]string
-	builtinCache    sync.Map // map[string]http.HandlerFunc
-	virtualCache    sync.Map // map[string]http.HandlerFunc
 }
 
 func NewManager(reg *registry.Registry) *Manager {
 	m := &Manager{
 		Registry: reg,
 	}
-	m.Tree.Store(&rtree.RouteTree{})
 	return m
 }
 
-func (m *Manager) UpdateTree(newTree *rtree.RouteTree) {
-	m.Tree.Store(newTree)
+func (m *Manager) UpdateGeneration(gen *Generation) {
+	gen.InitCaches()
+	m.State.Store(gen)
 	metrics.Global.IncUpdates()
 }
 
@@ -58,6 +54,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Wrap ResponseWriter to track activity, status, and size
 	trackedWriter := newTrackedResponseWriter(w)
+	defer trackedWriter.release()
 
 	var finalServiceName string
 	var routePattern string
@@ -70,7 +67,8 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		metrics.Global.RequestDuration.WithLabelValues(r.Method, routePattern).Observe(duration)
 	}()
 
-	tree := m.Tree.Load()
+	state := m.State.Load()
+	tree := &state.Tree
 
 	host, _, err := net.SplitHostPort(r.Host)
 	if err != nil {
@@ -78,7 +76,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Route Lookup
-	lookupPath := fmt.Sprintf("%s%s", host, r.URL.Path)
+	lookupPath := host + r.URL.Path
 	lookupPathBytes := []byte(lookupPath)
 	rtree.ReverseHost(lookupPathBytes)
 	node, exists := tree.Search(lookupPathBytes)
@@ -111,42 +109,49 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	interpolator := interpolate.New(r)
+	var interpolator *interpolate.RequestContext
 
 	serviceMetadataIndex := tree.ActionMetadata[node.ActionIndex]
 	targetServiceID := tree.ActionMetadata[serviceMetadataIndex]
 	rawServiceName := tree.GetActionName(targetServiceID)
 
-	mwCount := tree.ActionMetadata[node.ActionIndex+1]
-	resolvedMiddlewares := make([]string, mwCount)
+	tempResp := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+	defer tempresp.Pool.Put(tempResp)
 
+	// 3. Middleware Execution
+	mwCount := tree.ActionMetadata[node.ActionIndex+1]
 	if mwCount > 0 {
 		baseOffset := node.ActionIndex + 2
 		for i := range mwCount {
 			mwMetaIndex := tree.ActionMetadata[baseOffset+i]
 			rawMwName := tree.GetActionName(tree.ActionMetadata[mwMetaIndex])
-
 			opLen := tree.ActionMetadata[mwMetaIndex+1]
-			if opLen > 0 {
+
+			mwExpr := rawMwName
+			isStatic := opLen == 0
+			if !isStatic {
 				opOffset := mwMetaIndex + 2
 				ops := tree.ActionMetadata[opOffset : opOffset+opLen]
-				resolvedMiddlewares[i] = interpolator.Replace(rawMwName, ops)
-			} else {
-				resolvedMiddlewares[i] = rawMwName
+				if interpolator == nil {
+					interpolator = interpolate.New(r)
+				}
+				mwExpr = interpolator.Replace(rawMwName, ops)
 			}
-		}
-	}
 
-	tempResp := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-	defer tempresp.Pool.Put(tempResp)
+			tempResp.Setup(trackedWriter)
 
-	// 3. Middleware Execution
-	for _, mwExpr := range resolvedMiddlewares {
-		tempResp.Setup(trackedWriter)
-
-		if strings.HasPrefix(mwExpr, "$") {
-			// Internal built-in middleware logic
-			if handler := m.resolveBuiltinMiddleware(mwExpr); handler != nil {
+			if strings.HasPrefix(mwExpr, "$") {
+				var handler builtinsmware.HandlerFunc
+				if isStatic {
+					handler = state.builtins[mwExpr]
+				} else {
+					handler = buildBuiltinHandler(mwExpr)
+				}
+				if handler == nil {
+					logs.Out.Error("Failed To Resolve Built-in Middleware", zap.String("expr", mwExpr))
+					http.Error(trackedWriter, ErrInternal, http.StatusInternalServerError)
+					return
+				}
 				handler(tempResp, r)
 				if tempResp.GetCode() != http.StatusOK {
 					if !tempResp.IsPassthrough() {
@@ -155,60 +160,66 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				logs.Out.Error("Failed To Resolve Built-in Middleware", zap.String("expr", mwExpr))
-				http.Error(trackedWriter, ErrInternal, http.StatusInternalServerError)
-				return
-			}
-		} else {
-			funcName, path, err := m.resolveExternalMiddleware(mwExpr)
-			if err != nil {
-				logs.Out.Error("Middleware Resolution Failed", zap.Error(err), zap.String("expr", mwExpr))
-				http.Error(trackedWriter, ErrInternal, http.StatusInternalServerError)
-				return
+				var ext ExternalMW
+				if isStatic {
+					ext = state.externals[mwExpr]
+				} else {
+					ext = buildExternalMW(mwExpr)
+				}
+
+				mwNodes := m.Registry.GetForwarders(ext.FuncName)
+				approved := false
+				for _, mw := range mwNodes {
+					mwErr := mw.ForwardMiddleware(tempResp, r, ext.Path)
+					if mwErr == nil {
+						approved = true
+						break
+					}
+					if mwErr == forwarder.ErrNodeUnavailable {
+						continue
+					}
+					// Middleware intentionally blocked — response already written to tempResp.
+					if !tempResp.IsPassthrough() {
+						tempResp.WriteTo(trackedWriter)
+					}
+					return
+				}
+				if !approved {
+					logs.Out.Warn("Middleware Service Unavailable", zap.String("expr", mwExpr))
+					http.Error(trackedWriter, ErrServiceUnav, http.StatusServiceUnavailable)
+					return
+				}
 			}
 
-			mwNodes := m.Registry.GetForwarders(funcName)
-			approved := false
-			for _, mw := range mwNodes {
-				mwErr := mw.ForwardMiddleware(tempResp, r, path)
-				if mwErr == nil {
-					approved = true
-					break
-				}
-				if mwErr == forwarder.ErrNodeUnavailable {
-					continue
-				}
-				// Middleware intentionally blocked — response already written to tempResp.
-				if !tempResp.IsPassthrough() {
-					tempResp.WriteTo(trackedWriter)
-				}
-				return
-			}
-			if !approved {
-				logs.Out.Warn("Middleware Service Unavailable", zap.String("expr", mwExpr))
-				http.Error(trackedWriter, ErrServiceUnav, http.StatusServiceUnavailable)
-				return
-			}
+			tempResp.Reset()
 		}
-
-		tempResp.Reset()
 	}
 
 	finalServiceName = rawServiceName
+	isStaticService := true
 	if opCount := tree.ActionMetadata[serviceMetadataIndex+1]; opCount > 0 {
 		offset := serviceMetadataIndex + 2
 		ops := tree.ActionMetadata[offset : offset+opCount]
 		finalServiceName = interpolator.Replace(rawServiceName, ops)
+		isStaticService = false
 	}
 
 	// 4. Virtual Service Check
 	if strings.HasPrefix(finalServiceName, "$") {
-		if handler := m.resolveVirtualService(finalServiceName); handler != nil {
-			handler(trackedWriter, r)
+		handler := m.resolveSpecialVirtualService(finalServiceName) // $services/$ping, always live
+		if handler == nil {
+			if isStaticService {
+				handler = state.virtuals[finalServiceName]
+			} else {
+				handler = buildVirtualHandler(finalServiceName)
+			}
+		}
+		if handler == nil {
+			logs.Out.Error("Virtual Service Resolution Failed", zap.String("service", finalServiceName))
+			http.Error(trackedWriter, ErrInternal, http.StatusInternalServerError)
 			return
 		}
-		logs.Out.Error("Virtual Service Resolution Failed", zap.String("service", finalServiceName))
-		http.Error(trackedWriter, ErrInternal, http.StatusInternalServerError)
+		handler(trackedWriter, r)
 		return
 	}
 

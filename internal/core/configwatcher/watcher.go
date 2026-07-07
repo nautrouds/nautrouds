@@ -7,7 +7,6 @@ import (
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/proxy"
-	"nautrouds/internal/rtree"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,20 +50,20 @@ func NewConfigWatcher(configPath, ntucPath string, manager *proxy.Manager) (*Con
 }
 
 func (cw *ConfigWatcher) LoadInitial() error {
-	var tree *rtree.RouteTree
+	var gen *proxy.Generation
 	var err error
 
 	if cw.isSource {
-		tree, err = cw.compileAndLoad()
+		gen, err = cw.compileAndLoad()
 	} else {
-		tree, err = cw.loadStatic()
+		gen, err = cw.loadStatic()
 	}
 
 	if err != nil {
 		return err
 	}
 
-	cw.manager.UpdateTree(tree)
+	cw.manager.UpdateGeneration(gen)
 	return nil
 }
 
@@ -113,13 +112,13 @@ func (cw *ConfigWatcher) listen() {
 
 func (cw *ConfigWatcher) reload() {
 	start := time.Now()
-	var newTree *rtree.RouteTree
+	var newGen *proxy.Generation
 	var err error
 
 	if cw.isSource {
-		newTree, err = cw.compileAndLoad()
+		newGen, err = cw.compileAndLoad()
 	} else {
-		newTree, err = cw.loadStatic()
+		newGen, err = cw.loadStatic()
 	}
 
 	if err != nil {
@@ -128,28 +127,28 @@ func (cw *ConfigWatcher) reload() {
 		return
 	}
 
-	cw.manager.UpdateTree(newTree)
+	cw.manager.UpdateGeneration(newGen)
 	metrics.Global.ConfigReloadDuration.Observe(time.Since(start).Seconds())
 	logs.Out.Info("Route table reloaded and updated")
 }
 
-func (cw *ConfigWatcher) loadStatic() (*rtree.RouteTree, error) {
+func (cw *ConfigWatcher) loadStatic() (*proxy.Generation, error) {
 	file, err := os.Open(cw.fullConfigPath)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	var tree rtree.RouteTree
+	var gen proxy.Generation
 	dec := gob.NewDecoder(file)
-	if err := dec.Decode(&tree); err != nil {
+	if err := dec.Decode(&gen.Tree); err != nil {
 		metrics.Global.ConfigErrorsTotal.WithLabelValues("decode").Inc()
 		return nil, err
 	}
-	return &tree, nil
+	return &gen, nil
 }
 
-func (cw *ConfigWatcher) compileAndLoad() (*rtree.RouteTree, error) {
+func (cw *ConfigWatcher) compileAndLoad() (*proxy.Generation, error) {
 	cmd := exec.Command(cw.ntucPath, "-i", cw.fullConfigPath, "-o", "-")
 
 	stdout, err := cmd.StdoutPipe()
@@ -167,9 +166,9 @@ func (cw *ConfigWatcher) compileAndLoad() (*rtree.RouteTree, error) {
 		return nil, err
 	}
 
-	var tree rtree.RouteTree
+	var gen proxy.Generation
 	dec := gob.NewDecoder(stdout)
-	decodeErr := dec.Decode(&tree)
+	decodeErr := dec.Decode(&gen.Tree)
 
 	slurp, _ := io.ReadAll(stderr)
 	if err := cmd.Wait(); err != nil {
@@ -182,7 +181,7 @@ func (cw *ConfigWatcher) compileAndLoad() (*rtree.RouteTree, error) {
 		return nil, fmt.Errorf("decode compiled data failed: %v", decodeErr)
 	}
 
-	return &tree, nil
+	return &gen, nil
 }
 
 func (cw *ConfigWatcher) Close() error {

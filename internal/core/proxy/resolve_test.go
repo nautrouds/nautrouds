@@ -33,7 +33,7 @@ func TestServeHTTP_VirtualService_Services(t *testing.T) {
 	tree := rtree.Build([]*rtree.RawNode{
 		{URL: "example.com/services", Service: "$services", Methods: "GET"},
 	})
-	mgr.UpdateTree(tree)
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	req := httptest.NewRequest("GET", "http://example.com/services", nil)
 	w := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestServeHTTP_VirtualService_Ping_NoNodes(t *testing.T) {
 	tree := rtree.Build([]*rtree.RawNode{
 		{URL: "example.com/ping", Service: "$ping(missing-svc)", Methods: "GET"},
 	})
-	mgr.UpdateTree(tree)
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	req := httptest.NewRequest("GET", "http://example.com/ping", nil)
 	w := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestServeHTTP_UnknownVirtualService(t *testing.T) {
 	tree := rtree.Build([]*rtree.RawNode{
 		{URL: "example.com/bad", Service: "$nonexistent", Methods: "GET"},
 	})
-	mgr.UpdateTree(tree)
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	req := httptest.NewRequest("GET", "http://example.com/bad", nil)
 	w := httptest.NewRecorder()
@@ -87,7 +87,7 @@ func TestServeHTTP_BuiltinMiddleware(t *testing.T) {
 			Middlewares: []string{"$SetHeader(X-Injected, yes)"},
 		},
 	})
-	mgr.UpdateTree(tree)
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	req := httptest.NewRequest("GET", "http://example.com/mw", nil)
 	w := httptest.NewRecorder()
@@ -110,7 +110,7 @@ func TestServeHTTP_BuiltinMiddleware_Blocks(t *testing.T) {
 			Middlewares: []string{"$BasicAuth(user, pass)"},
 		},
 	})
-	mgr.UpdateTree(tree)
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	req := httptest.NewRequest("GET", "http://example.com/secure", nil)
 	w := httptest.NewRecorder()
@@ -126,7 +126,7 @@ func TestServeHTTP_ResolveBuiltinMiddleware_Cache(t *testing.T) {
 		{URL: "example.com/c1", Service: "$echo", Methods: "GET", Middlewares: []string{"$SetHeader(X-Hit, 1)"}},
 		{URL: "example.com/c2", Service: "$echo", Methods: "GET", Middlewares: []string{"$SetHeader(X-Hit, 1)"}},
 	})
-	mgr.UpdateTree(tree)
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	// Two requests exercising the same middleware expression — second call goes through cache.
 	for _, path := range []string{"/c1", "/c2"} {
@@ -141,9 +141,9 @@ func TestManager_UpdateTree_HotSwap(t *testing.T) {
 	mgr, _, _ := newTestManager(t)
 
 	// Install tree with route A
-	mgr.UpdateTree(rtree.Build([]*rtree.RawNode{
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *rtree.Build([]*rtree.RawNode{
 		{URL: "example.com/a", Service: "$ok(A)", Methods: "GET"},
-	}))
+	})})
 
 	reqA := httptest.NewRequest("GET", "http://example.com/a", nil)
 	wA := httptest.NewRecorder()
@@ -152,9 +152,9 @@ func TestManager_UpdateTree_HotSwap(t *testing.T) {
 	assert.Equal(t, "A", wA.Body.String())
 
 	// Swap to tree with route B only — A should now 404
-	mgr.UpdateTree(rtree.Build([]*rtree.RawNode{
+	mgr.UpdateGeneration(&proxy.Generation{Tree: *rtree.Build([]*rtree.RawNode{
 		{URL: "example.com/b", Service: "$ok(B)", Methods: "GET"},
-	}))
+	})})
 
 	reqA2 := httptest.NewRequest("GET", "http://example.com/a", nil)
 	wA2 := httptest.NewRecorder()
