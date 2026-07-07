@@ -44,7 +44,7 @@ func TestManager_ServeHTTP(t *testing.T) {
 		},
 	}
 	tree := rtree.Build(rawNodes)
-	manager.UpdateTree(tree)
+	manager.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	t.Run("Not Found", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://example.com/unknown", nil)

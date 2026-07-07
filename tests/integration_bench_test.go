@@ -41,7 +41,7 @@ func BenchmarkProxy_ServeHTTP(b *testing.B) {
 		},
 	}
 	tree := rtree.Build(rawNodes)
-	manager.UpdateTree(tree)
+	manager.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
 	b.Run("Virtual Service $ok", func(b *testing.B) {
 		req := httptest.NewRequest("GET", "http://example.com/health", nil)
