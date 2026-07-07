@@ -170,7 +170,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				mwNodes := m.Registry.GetForwarders(ext.FuncName)
 				approved := false
 				for _, mw := range mwNodes {
-					mwErr := mw.ForwardMiddleware(tempResp, r, ext.Path)
+					mwErr := mw.ForwardMiddleware(tempResp, r, ext.Path, ext.AllowedHeaders)
 					if mwErr == nil {
 						approved = true
 						break

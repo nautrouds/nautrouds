@@ -56,6 +56,21 @@ Middlewares are applied to a route via indentation.
 
 ---
 
+## External Middlewares
+
+A middleware name without a `$` prefix is forwarded to a UDS service registered under that name. It accepts the same `(args)` syntax as builtins:
+
+```text
+auth-service(/check, header=X-User-Id, header=X-User-Role)
+```
+
+| Position | Meaning |
+| :--- | :--- |
+| `args[0]` | Path invoked on the middleware's UDS service (default `/`). |
+| `args[1:]` with a `header=` prefix | Allowlist of response headers copied back onto the request when the middleware approves (204). Any other response header is dropped. Args without this prefix are ignored. |
+
+---
+
 ## Virtual Services ($)
 
 Virtual services are functional endpoints provided by the Nautrouds core.

@@ -87,7 +87,7 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
 		defer tempresp.Pool.Put(w)
 
-		err := f.ForwardMiddleware(w, req, "/")
+		err := f.ForwardMiddleware(w, req, "/", []string{"X-User-ID"})
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusNoContent, w.GetCode())
 		assert.Equal(t, "123", req.Header.Get("X-User-ID"))
@@ -99,9 +99,21 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
 		defer tempresp.Pool.Put(w)
 
-		err := f.ForwardMiddleware(w, req, "/")
+		err := f.ForwardMiddleware(w, req, "/", nil)
 		assert.Equal(t, ErrMiddlewareBlocked, err)
 		assert.Equal(t, http.StatusUnauthorized, w.GetCode())
+	})
+
+	t.Run("Authorized_HeaderNotAllowlisted", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "http://example.com/", nil)
+		req.Header.Set("X-Auth", "valid")
+		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+		defer tempresp.Pool.Put(w)
+
+		err := f.ForwardMiddleware(w, req, "/", []string{"X-Other"})
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusNoContent, w.GetCode())
+		assert.Empty(t, req.Header.Get("X-User-ID"))
 	})
 }
 
@@ -138,7 +150,7 @@ func TestForwarder_FailureReporting(t *testing.T) {
 		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
 		defer tempresp.Pool.Put(w)
 
-		err := f.ForwardMiddleware(w, req, "/")
+		err := f.ForwardMiddleware(w, req, "/", nil)
 		assert.Equal(t, ErrNodeUnavailable, err)
 
 		select {
