@@ -120,7 +120,9 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 // Returns nil if the middleware approved (204), ErrNodeUnavailable if the node
 // is unreachable (caller should retry with another node), or ErrMiddlewareBlocked
 // if the middleware intentionally blocked the request (response already written to w).
-func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, path string) error {
+// On approval, only response headers listed in allowedHeaders are copied back
+// onto the request — anything else the middleware returns is dropped.
+func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, path string, allowedHeaders []string) error {
 	if f.isFailed.Load() {
 		return ErrNodeUnavailable
 	}
@@ -163,7 +165,12 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 	}
 
 	if response.StatusCode == http.StatusNoContent {
-		for key, values := range response.Header {
+		for _, key := range allowedHeaders {
+			values := response.Header.Values(key)
+			if len(values) == 0 {
+				continue
+			}
+			r.Header.Del(key)
 			for _, value := range values {
 				r.Header.Add(key, value)
 			}

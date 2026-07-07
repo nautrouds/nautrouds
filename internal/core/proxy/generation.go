@@ -17,8 +17,9 @@ type Generation struct {
 }
 
 type ExternalMW struct {
-	FuncName string
-	Path     string
+	FuncName       string
+	Path           string
+	AllowedHeaders []string
 }
 
 func (g *Generation) InitCaches() {
@@ -113,6 +114,11 @@ func buildExternalMW(expr string) ExternalMW {
 	mw := ExternalMW{FuncName: funcName}
 	if len(args) > 0 {
 		mw.Path = args[0]
+	}
+	for _, arg := range args[1:] {
+		if header, ok := strings.CutPrefix(arg, "header="); ok {
+			mw.AllowedHeaders = append(mw.AllowedHeaders, header)
+		}
 	}
 	return mw
 }
