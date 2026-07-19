@@ -30,7 +30,63 @@ type Registry struct {
 
 type ServiceSet struct {
 	nodes []string
+	set   map[string]struct{} // mirrors nodes; O(1) membership lookups
 	index atomic.Uint32
+}
+
+func newServiceSet(nodes []string) *ServiceSet {
+	ss := &ServiceSet{}
+	ss.replace(nodes)
+	return ss
+}
+
+func (ss *ServiceSet) ensureSet() {
+	if ss.set != nil {
+		return
+	}
+	ss.set = make(map[string]struct{}, len(ss.nodes))
+	for _, n := range ss.nodes {
+		ss.set[n] = struct{}{}
+	}
+}
+
+func (ss *ServiceSet) replace(nodes []string) {
+	ss.nodes = nodes
+	ss.set = make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		ss.set[n] = struct{}{}
+	}
+}
+
+func (ss *ServiceSet) contains(node string) bool {
+	ss.ensureSet()
+	_, ok := ss.set[node]
+	return ok
+}
+
+func (ss *ServiceSet) add(node string) bool {
+	ss.ensureSet()
+	if _, ok := ss.set[node]; ok {
+		return false
+	}
+	ss.set[node] = struct{}{}
+	ss.nodes = append(ss.nodes, node)
+	return true
+}
+
+func (ss *ServiceSet) remove(node string) bool {
+	ss.ensureSet()
+	if _, ok := ss.set[node]; !ok {
+		return false
+	}
+	delete(ss.set, node)
+	for i, n := range ss.nodes {
+		if n == node {
+			ss.nodes = slices.Delete(ss.nodes, i, i+1)
+			break
+		}
+	}
+	return true
 }
 
 type nodeContext struct {
@@ -88,25 +144,19 @@ func (r *Registry) listenFailures() {
 
 func (r *Registry) moveToUnhealthyUnsafe(serviceName, nodePath string) {
 	if ss, ok := r.services[serviceName]; ok {
-		for i, n := range ss.nodes {
-			if n == nodePath {
-				ss.nodes = slices.Delete(ss.nodes, i, i+1)
-				break
-			}
-		}
+		ss.remove(nodePath)
 		if len(ss.nodes) == 0 {
 			delete(r.services, serviceName)
 		}
 		metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(ss.nodes)))
 	}
 
-	if _, ok := r.unhealthy[serviceName]; !ok {
-		r.unhealthy[serviceName] = &ServiceSet{}
+	us, ok := r.unhealthy[serviceName]
+	if !ok {
+		us = newServiceSet(nil)
+		r.unhealthy[serviceName] = us
 	}
-
-	if !slices.Contains(r.unhealthy[serviceName].nodes, nodePath) {
-		r.unhealthy[serviceName].nodes = append(r.unhealthy[serviceName].nodes, nodePath)
-	}
+	us.add(nodePath)
 }
 
 func (r *Registry) NodeCount(serviceName string) int {
@@ -207,6 +257,7 @@ func (r *Registry) Scan(target string) error {
 
 func (r *Registry) fullScan() error {
 	scannedState := make(map[string][]string)
+	scannedPaths := make(map[string]string)
 	baseLen := len(r.baseDir) + 1
 
 	err := filepath.WalkDir(r.baseDir, func(path string, d os.DirEntry, err error) error {
@@ -222,6 +273,7 @@ func (r *Registry) fullScan() error {
 
 			serviceName := filepath.Dir(rel)
 			scannedState[serviceName] = append(scannedState[serviceName], path)
+			scannedPaths[path] = serviceName
 		}
 		return nil
 	})
@@ -238,8 +290,7 @@ func (r *Registry) fullScan() error {
 
 	// 1. Remove services/nodes no longer present
 	for path, ctx := range r.nodeMap {
-		discovered, found := scannedState[ctx.serviceName]
-		if !found || !slices.Contains(discovered, path) {
+		if svcName, found := scannedPaths[path]; !found || svcName != ctx.serviceName {
 			r.removeNodeUnsafe(path, false)
 			r.removeFromUnhealthyUnsafe(ctx.serviceName, path)
 		}
@@ -247,7 +298,8 @@ func (r *Registry) fullScan() error {
 
 	// 2. Add new nodes and update services
 	for svcName, nodes := range scannedState {
-		healthyNodes := make([]string, 0)
+		healthyNodes := make([]string, 0, len(nodes))
+		us := r.unhealthy[svcName]
 
 		for _, node := range nodes {
 			if _, exists := r.nodeMap[node]; !exists {
@@ -257,23 +309,16 @@ func (r *Registry) fullScan() error {
 				}
 			}
 
-			isUnhealthy := false
-			if us, ok := r.unhealthy[svcName]; ok {
-				if slices.Contains(us.nodes, node) {
-					isUnhealthy = true
-				}
-			}
-
-			if !isUnhealthy {
+			if us == nil || !us.contains(node) {
 				healthyNodes = append(healthyNodes, node)
 			}
 		}
 
 		if len(healthyNodes) > 0 {
 			if ss, exists := r.services[svcName]; exists {
-				ss.nodes = healthyNodes
+				ss.replace(healthyNodes)
 			} else {
-				r.services[svcName] = &ServiceSet{nodes: healthyNodes}
+				r.services[svcName] = newServiceSet(healthyNodes)
 			}
 		} else {
 			delete(r.services, svcName)
@@ -303,14 +348,19 @@ func (r *Registry) scanService(serviceName string) error {
 		return err
 	}
 
+	discoveredSet := make(map[string]struct{}, len(discoveredNodes))
+	for _, node := range discoveredNodes {
+		discoveredSet[node] = struct{}{}
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	// 1. Identify nodes to remove (healthy and unhealthy)
-	currentSet, exists := r.services[serviceName]
-	if exists {
-		for _, oldNode := range currentSet.nodes {
-			if !slices.Contains(discoveredNodes, oldNode) {
+	// Clone before ranging: removeNodeUnsafe/removeFromUnhealthyUnsafe delete in place, which would skip elements mid-iteration otherwise.
+	if currentSet, exists := r.services[serviceName]; exists {
+		for _, oldNode := range slices.Clone(currentSet.nodes) {
+			if _, found := discoveredSet[oldNode]; !found {
 				r.removeNodeUnsafe(oldNode, false)
 				r.removeFromUnhealthyUnsafe(serviceName, oldNode)
 			}
@@ -318,7 +368,7 @@ func (r *Registry) scanService(serviceName string) error {
 	}
 	if us, ok := r.unhealthy[serviceName]; ok {
 		for _, oldNode := range slices.Clone(us.nodes) {
-			if !slices.Contains(discoveredNodes, oldNode) {
+			if _, found := discoveredSet[oldNode]; !found {
 				r.removeNodeUnsafe(oldNode, false)
 				r.removeFromUnhealthyUnsafe(serviceName, oldNode)
 			}
@@ -332,7 +382,8 @@ func (r *Registry) scanService(serviceName string) error {
 		return nil
 	}
 
-	finalHealthyNodes := make([]string, 0)
+	us := r.unhealthy[serviceName]
+	finalHealthyNodes := make([]string, 0, len(discoveredNodes))
 	for _, node := range discoveredNodes {
 		if _, exists := r.nodeMap[node]; !exists {
 			r.nodeMap[node] = &nodeContext{
@@ -341,14 +392,7 @@ func (r *Registry) scanService(serviceName string) error {
 			}
 		}
 
-		isUnhealthy := false
-		if us, ok := r.unhealthy[serviceName]; ok {
-			if slices.Contains(us.nodes, node) {
-				isUnhealthy = true
-			}
-		}
-
-		if !isUnhealthy {
+		if us == nil || !us.contains(node) {
 			finalHealthyNodes = append(finalHealthyNodes, node)
 		}
 	}
@@ -356,9 +400,9 @@ func (r *Registry) scanService(serviceName string) error {
 	// 3. Update service set
 	if len(finalHealthyNodes) > 0 {
 		if ss, exists := r.services[serviceName]; exists {
-			ss.nodes = finalHealthyNodes
+			ss.replace(finalHealthyNodes)
 		} else {
-			r.services[serviceName] = &ServiceSet{nodes: finalHealthyNodes}
+			r.services[serviceName] = newServiceSet(finalHealthyNodes)
 		}
 	} else {
 		delete(r.services, serviceName)
@@ -384,12 +428,7 @@ func (r *Registry) removeNodeUnsafe(nodePath string, shouldDeleteFile bool) {
 	delete(r.nodeMap, nodePath)
 
 	if ss, ok := r.services[serviceName]; ok {
-		for i, n := range ss.nodes {
-			if n == nodePath {
-				ss.nodes = slices.Delete(ss.nodes, i, i+1)
-				break
-			}
-		}
+		ss.remove(nodePath)
 		metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(ss.nodes)))
 		if len(ss.nodes) == 0 {
 			delete(r.services, serviceName)
@@ -456,25 +495,18 @@ func (r *Registry) promoteToHealthyUnsafe(serviceName, nodePath string) {
 
 	ss, ok := r.services[serviceName]
 	if !ok {
-		ss = &ServiceSet{}
+		ss = newServiceSet(nil)
 		r.services[serviceName] = ss
 	}
 
-	if !slices.Contains(ss.nodes, nodePath) {
-		ss.nodes = append(ss.nodes, nodePath)
-	}
+	ss.add(nodePath)
 
 	metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(ss.nodes)))
 }
 
 func (r *Registry) removeFromUnhealthyUnsafe(serviceName, nodePath string) {
 	if ss, ok := r.unhealthy[serviceName]; ok {
-		for i, n := range ss.nodes {
-			if n == nodePath {
-				ss.nodes = slices.Delete(ss.nodes, i, i+1)
-				break
-			}
-		}
+		ss.remove(nodePath)
 		if len(ss.nodes) == 0 {
 			delete(r.unhealthy, serviceName)
 		}

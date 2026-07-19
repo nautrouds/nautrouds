@@ -32,11 +32,11 @@ func expandField(field string) []string {
 	var results []string
 	prefix := field[:start]
 	suffix := field[end+1:]
+	remainingExpanded := expandField(suffix)
 
 	for _, part := range parts {
 		innerExpanded := expandField(part)
 		for _, inner := range innerExpanded {
-			remainingExpanded := expandField(suffix)
 			for _, rem := range remainingExpanded {
 				results = append(results, prefix+inner+rem)
 			}
