@@ -18,7 +18,7 @@ import (
 type proxyErrorKey struct{}
 
 var (
-	ErrNodeUnavailable  = errors.New("Node Unavailable")
+	ErrNodeUnavailable   = errors.New("Node Unavailable")
 	ErrMiddlewareBlocked = errors.New("Middleware Blocked")
 )
 

@@ -70,10 +70,10 @@ func Analyze(origin string) []uint32 {
 }
 
 type RequestContext struct {
-	request       *http.Request
-	queryParams   url.Values
-	encodedQuery  string
-	remoteIP      string
+	request      *http.Request
+	queryParams  url.Values
+	encodedQuery string
+	remoteIP     string
 }
 
 func New(r *http.Request) *RequestContext {
