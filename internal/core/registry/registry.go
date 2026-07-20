@@ -29,9 +29,9 @@ type Registry struct {
 }
 
 type ServiceSet struct {
-	nodes []string
-	set   map[string]struct{} // mirrors nodes; O(1) membership lookups
-	index atomic.Uint32
+	nodes     []string
+	nodeIndex map[string]int // node -> position in nodes; O(1) lookup & removal
+	index     atomic.Uint32
 }
 
 func newServiceSet(nodes []string) *ServiceSet {
@@ -40,52 +40,54 @@ func newServiceSet(nodes []string) *ServiceSet {
 	return ss
 }
 
-func (ss *ServiceSet) ensureSet() {
-	if ss.set != nil {
+func (ss *ServiceSet) ensureNodeIndex() {
+	if ss.nodeIndex != nil {
 		return
 	}
-	ss.set = make(map[string]struct{}, len(ss.nodes))
-	for _, n := range ss.nodes {
-		ss.set[n] = struct{}{}
+	ss.nodeIndex = make(map[string]int, len(ss.nodes))
+	for i, n := range ss.nodes {
+		ss.nodeIndex[n] = i
 	}
 }
 
 func (ss *ServiceSet) replace(nodes []string) {
 	ss.nodes = nodes
-	ss.set = make(map[string]struct{}, len(nodes))
-	for _, n := range nodes {
-		ss.set[n] = struct{}{}
+	ss.nodeIndex = make(map[string]int, len(nodes))
+	for i, n := range nodes {
+		ss.nodeIndex[n] = i
 	}
 }
 
 func (ss *ServiceSet) contains(node string) bool {
-	ss.ensureSet()
-	_, ok := ss.set[node]
+	ss.ensureNodeIndex()
+	_, ok := ss.nodeIndex[node]
 	return ok
 }
 
 func (ss *ServiceSet) add(node string) bool {
-	ss.ensureSet()
-	if _, ok := ss.set[node]; ok {
+	ss.ensureNodeIndex()
+	if _, ok := ss.nodeIndex[node]; ok {
 		return false
 	}
-	ss.set[node] = struct{}{}
+	ss.nodeIndex[node] = len(ss.nodes)
 	ss.nodes = append(ss.nodes, node)
 	return true
 }
 
 func (ss *ServiceSet) remove(node string) bool {
-	ss.ensureSet()
-	if _, ok := ss.set[node]; !ok {
+	ss.ensureNodeIndex()
+	removedIdx, ok := ss.nodeIndex[node]
+	if !ok {
 		return false
 	}
-	delete(ss.set, node)
-	for i, n := range ss.nodes {
-		if n == node {
-			ss.nodes = slices.Delete(ss.nodes, i, i+1)
-			break
-		}
+	lastIdx := len(ss.nodes) - 1
+	lastNode := ss.nodes[lastIdx]
+	ss.nodes[removedIdx] = lastNode
+	ss.nodes = ss.nodes[:lastIdx]
+	if lastNode != node {
+		ss.nodeIndex[lastNode] = removedIdx
 	}
+	delete(ss.nodeIndex, node)
 	return true
 }
 
