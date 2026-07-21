@@ -64,7 +64,7 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 	defer fileLock.Unlock()
 
 	// Initialize Registry and Watcher for dynamic node discovery
-	reg, err := registry.NewRegistry(opts.ServicesDir)
+	reg, err := registry.NewRegistry()
 	if err != nil {
 		return fmt.Errorf("registry initialization failed: %w", err)
 	}
@@ -84,7 +84,7 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 		return fmt.Errorf("failed to perform initial route config load: %w", err)
 	}
 
-	w, err := watcher.NewWatcher(reg)
+	w, err := watcher.NewWatcher(opts.ServicesDir, reg)
 	if err != nil {
 		return fmt.Errorf("node watcher initialization failed: %w", err)
 	}
