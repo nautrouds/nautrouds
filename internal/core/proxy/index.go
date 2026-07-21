@@ -6,6 +6,7 @@ import (
 	"nautrouds/internal/core/builtins/builtinsmware"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/registry"
 	"nautrouds/internal/core/registry/forwarder"
 	"nautrouds/internal/core/tempresp"
@@ -31,11 +32,13 @@ const (
 type Manager struct {
 	State    atomic.Pointer[Generation]
 	Registry *registry.Registry
+	Mmfg     mmfg.Hub
 }
 
-func NewManager(reg *registry.Registry) *Manager {
+func NewManager(reg *registry.Registry, mmfgHub mmfg.Hub) *Manager {
 	m := &Manager{
 		Registry: reg,
+		Mmfg:     mmfgHub,
 	}
 	return m
 }

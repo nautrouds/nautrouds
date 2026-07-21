@@ -13,6 +13,8 @@ import (
 	"github.com/nautrouds/mmfg-http/go/mmfghttp"
 )
 
+const IsAvailable = true
+
 const (
 	nodeSuffix    = ".mmfg"
 	controlSuffix = ".ctl.mmfg"
@@ -39,10 +41,6 @@ func NewHub() (Hub, error) {
 	h.dial = h.hub.Dial
 
 	return h, nil
-}
-
-func (h *UnixHub) Enabled() bool {
-	return true
 }
 
 func (h *UnixHub) Extension() string {

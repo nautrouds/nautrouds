@@ -21,7 +21,7 @@ func BenchmarkProxy_ServeHTTP(b *testing.B) {
 		b.Fatalf("failed to create registry: %v", err)
 	}
 
-	manager := proxy.NewManager(reg)
+	manager := proxy.NewManager(reg, nil)
 
 	rawNodes := []*rtree.RawNode{
 		{

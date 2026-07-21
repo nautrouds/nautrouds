@@ -43,6 +43,9 @@ func NewWatcher(baseDir string, r *registry.Registry, scanHandlers ...nodescan.H
 	}
 
 	for _, h := range scanHandlers {
+		if h == nil {
+			continue
+		}
 		if err := s.Register(h); err != nil {
 			return nil, err
 		}

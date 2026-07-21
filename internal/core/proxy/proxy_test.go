@@ -23,7 +23,7 @@ func TestManager_ServeHTTP(t *testing.T) {
 	reg, err := registry.NewRegistry()
 	require.NoError(t, err)
 
-	manager := proxy.NewManager(reg)
+	manager := proxy.NewManager(reg, nil)
 
 	// 1. Setup Route Tree
 	rawNodes := []*rtree.RawNode{
@@ -110,7 +110,7 @@ func TestManager_LoadBalancing(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_ = proxy.NewManager(reg)
+	_ = proxy.NewManager(reg, nil)
 
 	// Verify internal state of registry for the service
 	state := reg.GetState()

@@ -6,6 +6,7 @@ import (
 	"nautrouds/internal/core/configwatcher"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/options"
 	"nautrouds/internal/core/proxy"
 	"nautrouds/internal/core/registry"
@@ -69,7 +70,16 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 		return fmt.Errorf("registry initialization failed: %w", err)
 	}
 
-	manager := proxy.NewManager(reg)
+	var mmfgHub mmfg.Hub
+	if mmfg.IsAvailable {
+		hub, err := mmfg.NewHub()
+		if err != nil {
+			return fmt.Errorf("mmfg hub initialization failed: %w", err)
+		}
+		mmfgHub = hub
+	}
+
+	manager := proxy.NewManager(reg, mmfgHub)
 
 	// Initialize Config Watcher (Handles load & hot-reload)
 	cw, err := configwatcher.NewConfigWatcher(opts.ConfigPath, opts.NtucPath, manager)
@@ -84,7 +94,7 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 		return fmt.Errorf("failed to perform initial route config load: %w", err)
 	}
 
-	w, err := watcher.NewWatcher(opts.ServicesDir, reg)
+	w, err := watcher.NewWatcher(opts.ServicesDir, reg, mmfgHub)
 	if err != nil {
 		return fmt.Errorf("node watcher initialization failed: %w", err)
 	}

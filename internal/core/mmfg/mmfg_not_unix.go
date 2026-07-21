@@ -8,14 +8,12 @@ import (
 	"net/http"
 )
 
+const IsAvailable = false
+
 type NotUnixHub struct{}
 
 func NewHub() (Hub, error) {
 	return &NotUnixHub{}, nil
-}
-
-func (NotUnixHub) Enabled() bool {
-	return false
 }
 
 func (NotUnixHub) Extension() string {

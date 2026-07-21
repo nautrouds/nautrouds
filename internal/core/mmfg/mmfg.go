@@ -7,7 +7,6 @@ import (
 )
 
 type Hub interface {
-	Enabled() bool
 	Extension() string
 	ApplyFullScan(baseDir string, byService map[string]map[string]struct{}) error
 	ApplyServiceScan(baseDir string, serviceName string, discovered []string) error

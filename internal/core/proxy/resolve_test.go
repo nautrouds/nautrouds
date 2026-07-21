@@ -24,7 +24,7 @@ func newTestManager(t *testing.T) (*proxy.Manager, *registry.Registry, string) {
 	reg, err := registry.NewRegistry()
 	require.NoError(t, err)
 
-	return proxy.NewManager(reg), reg, tmpDir
+	return proxy.NewManager(reg, nil), reg, tmpDir
 }
 
 func TestServeHTTP_VirtualService_Services(t *testing.T) {
