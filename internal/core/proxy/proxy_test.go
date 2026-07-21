@@ -20,7 +20,7 @@ func TestManager_ServeHTTP(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	require.NoError(t, err)
 
 	manager := proxy.NewManager(reg)
@@ -98,12 +98,16 @@ func TestManager_LoadBalancing(t *testing.T) {
 	// Create dummy socket files to satisfy Registry.Scan
 	svcDir := filepath.Join(tmpDir, "lb-service")
 	os.MkdirAll(svcDir, 0755)
-	os.WriteFile(filepath.Join(svcDir, "node1.sock"), []byte(""), 0644)
-	os.WriteFile(filepath.Join(svcDir, "node2.sock"), []byte(""), 0644)
+	node1 := filepath.Join(svcDir, "node1.sock")
+	node2 := filepath.Join(svcDir, "node2.sock")
+	os.WriteFile(node1, []byte(""), 0644)
+	os.WriteFile(node2, []byte(""), 0644)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	require.NoError(t, err)
-	err = reg.Scan("")
+	err = reg.ApplyServiceScan(tmpDir, "lb-service", []string{
+		node1, node2,
+	})
 	require.NoError(t, err)
 
 	_ = proxy.NewManager(reg)

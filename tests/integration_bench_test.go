@@ -16,7 +16,7 @@ func BenchmarkProxy_ServeHTTP(b *testing.B) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	if err != nil {
 		b.Fatalf("failed to create registry: %v", err)
 	}

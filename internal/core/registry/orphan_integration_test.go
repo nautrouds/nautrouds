@@ -39,9 +39,9 @@ func TestOrphanSocket_ECONNREFUSED_NodeRemovedAndFileDeleted(t *testing.T) {
 	_, err = os.Stat(socketPath)
 	require.NoError(t, err, "socket file must exist before scan")
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
-	require.NoError(t, reg.Scan(""))
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
 
 	require.Eventually(t, func() bool {
 		reg.mu.RLock()
@@ -67,7 +67,7 @@ func TestOrphanSocket_NonECONNREFUSED_NodeMovedToUnhealthy(t *testing.T) {
 
 	socketPath := filepath.Join(tmpDir, "svc", "node.sock")
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	reg.mu.Lock()

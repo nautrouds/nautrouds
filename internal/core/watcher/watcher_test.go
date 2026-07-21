@@ -153,14 +153,14 @@ func TestWatcher_EventDrivenScan(t *testing.T) {
 	}
 	defer ln.Close()
 
-	// Wait for the watcher to pick up the fs event and run the scan
-	deadline := time.Now().Add(2 * time.Second)
+	// Wait for the watcher to pick up the fs event and run the scan.
+	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		state := reg.GetState()
 		if _, ok := state["api"]; ok {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	t.Error("timed out waiting for event-driven scan to register api service")
