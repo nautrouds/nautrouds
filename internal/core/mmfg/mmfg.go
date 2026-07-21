@@ -8,7 +8,9 @@ import (
 
 type Hub interface {
 	Enabled() bool
-	Dial(nodeName string, socketPath string, controlSocketPath string) error
+	Extension() string
+	ApplyFullScan(baseDir string, byService map[string]map[string]struct{}) error
+	ApplyServiceScan(baseDir string, serviceName string, discovered []string) error
 	Request(ctx context.Context, r *http.Request) (Request, error)
 }
 

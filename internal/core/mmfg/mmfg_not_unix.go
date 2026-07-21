@@ -18,8 +18,16 @@ func (NotUnixHub) Enabled() bool {
 	return false
 }
 
-func (NotUnixHub) Dial(nodeName string, socketPath string, controlSocketPath string) error {
-	return fmt.Errorf("mmfg: unsupported on non-unix platforms")
+func (NotUnixHub) Extension() string {
+	return ".mmfg"
+}
+
+func (NotUnixHub) ApplyFullScan(baseDir string, byService map[string]map[string]struct{}) error {
+	return nil
+}
+
+func (NotUnixHub) ApplyServiceScan(baseDir string, serviceName string, discovered []string) error {
+	return nil
 }
 
 func (NotUnixHub) Request(_ context.Context, _ *http.Request) (Request, error) {
