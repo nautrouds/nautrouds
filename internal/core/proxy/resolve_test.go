@@ -21,7 +21,7 @@ func newTestManager(t *testing.T) (*proxy.Manager, *registry.Registry, string) {
 	require.NoError(t, err)
 	t.Cleanup(func() { os.RemoveAll(tmpDir) })
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	require.NoError(t, err)
 
 	return proxy.NewManager(reg), reg, tmpDir
