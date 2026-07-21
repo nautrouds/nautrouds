@@ -6,20 +6,16 @@ import (
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/registry/forwarder"
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"time"
 
 	"go.uber.org/zap"
 )
 
 type Registry struct {
-	mu      sync.RWMutex
-	baseDir string
+	mu sync.RWMutex
 
 	services  map[string]*ServiceSet // serviceName -> node list & load balanced index
 	unhealthy map[string]*ServiceSet
@@ -96,27 +92,17 @@ type nodeContext struct {
 	forwarder   *forwarder.Forwarder
 }
 
-func NewRegistry(baseDir string) (*Registry, error) {
-	absBase, err := filepath.Abs(baseDir)
-	if err != nil {
-		return nil, err
-	}
-
+func NewRegistry() (*Registry, error) {
 	r := &Registry{
 		services:    make(map[string]*ServiceSet),
 		unhealthy:   make(map[string]*ServiceSet),
 		nodeMap:     make(map[string]*nodeContext),
-		baseDir:     strings.TrimRight(filepath.ToSlash(absBase), "/"),
 		failureChan: make(chan forwarder.FailureForwarder, 100),
 	}
 
 	go r.listenFailures()
 
 	return r, nil
-}
-
-func (r *Registry) BaseDir() string {
-	return r.baseDir
 }
 
 func (r *Registry) listenFailures() {
@@ -241,69 +227,24 @@ func (r *Registry) GetForwarders(serviceName string) []*forwarder.Forwarder {
 	return result
 }
 
-// Scan satisfies the Watcher's expectation. It performs either a full scan
-// or a targeted scan based on the provided target string.
-func (r *Registry) Scan(target string) error {
-	start := time.Now()
-	defer func() {
-		metrics.Global.RegistryScanDuration.Observe(time.Since(start).Seconds())
-	}()
-
-	// If target is empty or matches baseDir, perform full scan
-	if target == "" || target == r.baseDir {
-		return r.fullScan()
-	}
-
-	return r.scanService(target)
+func (*Registry) Extension() string {
+	return ".sock"
 }
 
-func (r *Registry) fullScan() error {
-	scannedState := make(map[string][]string)
-	scannedPaths := make(map[string]string)
-	baseLen := len(r.baseDir) + 1
-
-	err := filepath.WalkDir(r.baseDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".sock") {
-			rel := filepath.ToSlash(path[baseLen:])
-			if !strings.Contains(rel, "/") {
-				return nil
-			}
-
-			serviceName := filepath.Dir(rel)
-			scannedState[serviceName] = append(scannedState[serviceName], path)
-			scannedPaths[path] = serviceName
-		}
-		return nil
-	})
-
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// 1. Remove services/nodes no longer present
+func (r *Registry) ApplyFullScan(baseDir string, byService map[string]map[string]struct{}) error {
 	for path, ctx := range r.nodeMap {
-		if svcName, found := scannedPaths[path]; !found || svcName != ctx.serviceName {
+		if _, ok := byService[ctx.serviceName][path]; !ok {
 			r.removeNodeUnsafe(path, false)
 			r.removeFromUnhealthyUnsafe(ctx.serviceName, path)
 		}
 	}
 
 	// 2. Add new nodes and update services
-	for svcName, nodes := range scannedState {
+	for svcName, nodes := range byService {
 		healthyNodes := make([]string, 0, len(nodes))
 		us := r.unhealthy[svcName]
 
-		for _, node := range nodes {
+		for node := range nodes {
 			if _, exists := r.nodeMap[node]; !exists {
 				r.nodeMap[node] = &nodeContext{
 					serviceName: svcName,
@@ -331,27 +272,10 @@ func (r *Registry) fullScan() error {
 	return nil
 }
 
-// ScanService performs a targeted scan of a single service directory
-func (r *Registry) scanService(serviceName string) error {
-	serviceDir := filepath.Join(r.baseDir, serviceName)
-	var discoveredNodes []string
+func (r *Registry) ApplyServiceScan(baseDir string, serviceName string, discovered []string) error {
 
-	err := filepath.WalkDir(serviceDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".sock") {
-			discoveredNodes = append(discoveredNodes, path)
-		}
-		return nil
-	})
-
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	discoveredSet := make(map[string]struct{}, len(discoveredNodes))
-	for _, node := range discoveredNodes {
+	discoveredSet := make(map[string]struct{}, len(discovered))
+	for _, node := range discovered {
 		discoveredSet[node] = struct{}{}
 	}
 
@@ -378,15 +302,15 @@ func (r *Registry) scanService(serviceName string) error {
 	}
 
 	// 2. Identify and add new nodes
-	if len(discoveredNodes) == 0 {
+	if len(discovered) == 0 {
 		delete(r.services, serviceName)
 		metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(0)
 		return nil
 	}
 
 	us := r.unhealthy[serviceName]
-	finalHealthyNodes := make([]string, 0, len(discoveredNodes))
-	for _, node := range discoveredNodes {
+	finalHealthyNodes := make([]string, 0, len(discovered))
+	for _, node := range discovered {
 		if _, exists := r.nodeMap[node]; !exists {
 			r.nodeMap[node] = &nodeContext{
 				serviceName: serviceName,
@@ -409,7 +333,7 @@ func (r *Registry) scanService(serviceName string) error {
 	} else {
 		delete(r.services, serviceName)
 	}
-	metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(discoveredNodes)))
+	metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(discovered)))
 
 	return nil
 }

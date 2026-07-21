@@ -26,7 +26,7 @@ func TestGetNodes_NilForMissingService(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	assert.Nil(t, reg.GetNodes("nonexistent"))
@@ -37,7 +37,7 @@ func TestGetNodes_ReturnsCopy(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	reg.mu.Lock()
@@ -59,7 +59,7 @@ func TestGetState_ReturnsSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	reg.mu.Lock()
@@ -78,7 +78,7 @@ func TestGetState_EmptyWhenNoServices(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	assert.Empty(t, reg.GetState())
@@ -91,7 +91,7 @@ func TestGetForwarder_ErrorOnMissingService(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	_, err = reg.GetForwarder("nonexistent")
@@ -103,7 +103,7 @@ func TestGetForwarder_RoundRobin(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	s1 := filepath.Join(tmpDir, "node1.sock")
@@ -144,7 +144,7 @@ func TestRetryUnhealthy_SocketUp_NodePromoted(t *testing.T) {
 	require.NoError(t, err)
 	defer ln.Close()
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	f := makeForwarder(socketPath)
@@ -172,7 +172,7 @@ func TestRetryUnhealthy_SocketDown_NodeStaysUnhealthy(t *testing.T) {
 
 	socketPath := filepath.Join(tmpDir, "nonexistent.sock") // no listener
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	f := makeForwarder(socketPath)
@@ -198,7 +198,7 @@ func TestRetryUnhealthy_NodeMissingFromNodeMap_Cleaned(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := NewRegistry(tmpDir)
+	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	socketPath := filepath.Join(tmpDir, "gone.sock")
