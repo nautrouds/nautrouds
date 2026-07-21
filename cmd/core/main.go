@@ -183,10 +183,11 @@ func cleanLegacySockets(dir string, token string) error {
 		return err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sock") {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".sock") || !strings.Contains(name, token) {
 			continue
 		}
-		filePath := filepath.Join(dir, entry.Name())
+		filePath := filepath.Join(dir, name)
 		err := os.Remove(filePath)
 		if err != nil {
 			return err
