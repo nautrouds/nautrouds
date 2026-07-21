@@ -17,12 +17,12 @@ func TestWatcher_Basic(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
 
-	w, err := NewWatcher(reg)
+	w, err := NewWatcher(tmpDir, reg)
 	if err != nil {
 		t.Fatalf("failed to create watcher: %v", err)
 	}
@@ -35,8 +35,8 @@ func TestWatcher_Basic(t *testing.T) {
 	}
 
 	// For simplicity in unit test, we verify that Start() didn't crash and initialized the registry.
-	if reg.BaseDir() != filepath.ToSlash(tmpDir) {
-		t.Errorf("expected base dir %s, got %s", filepath.ToSlash(tmpDir), reg.BaseDir())
+	if w.scanner.BaseDir() != filepath.ToSlash(tmpDir) {
+		t.Errorf("expected base dir %s, got %s", filepath.ToSlash(tmpDir), w.scanner.BaseDir())
 	}
 }
 
@@ -52,12 +52,12 @@ func TestWatcher_ScanOnStart(t *testing.T) {
 	os.MkdirAll(svcDir, 0755)
 	os.WriteFile(filepath.Join(svcDir, "1.sock"), []byte(""), 0644)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
 
-	w, err := NewWatcher(reg)
+	w, err := NewWatcher(tmpDir, reg)
 	if err != nil {
 		t.Fatalf("failed to create watcher: %v", err)
 	}
@@ -76,12 +76,12 @@ func TestWatcher_CloseWithoutStart(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
 
-	w, err := NewWatcher(reg)
+	w, err := NewWatcher(tmpDir, reg)
 	if err != nil {
 		t.Fatalf("failed to create watcher: %v", err)
 	}
@@ -99,12 +99,12 @@ func TestWatcher_StartEmptyDir(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
 
-	w, err := NewWatcher(reg)
+	w, err := NewWatcher(tmpDir, reg)
 	if err != nil {
 		t.Fatalf("failed to create watcher: %v", err)
 	}
@@ -130,12 +130,12 @@ func TestWatcher_EventDrivenScan(t *testing.T) {
 	svcDir := filepath.Join(tmpDir, "api")
 	os.MkdirAll(svcDir, 0755)
 
-	reg, err := registry.NewRegistry(tmpDir)
+	reg, err := registry.NewRegistry()
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
 
-	w, err := NewWatcher(reg)
+	w, err := NewWatcher(tmpDir, reg)
 	if err != nil {
 		t.Fatalf("failed to create watcher: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/registry"
+	"nautrouds/internal/core/watcher/nodescan"
 
 	"github.com/fsnotify/fsnotify"
 	"go.uber.org/zap"
@@ -16,6 +17,7 @@ import (
 
 type Watcher struct {
 	registry *registry.Registry
+	scanner  *nodescan.Scanner
 
 	dirtyServices map[string]struct{}
 	dirtyMu       sync.Mutex
@@ -25,14 +27,30 @@ type Watcher struct {
 	fsWatcher   *fsnotify.Watcher
 }
 
-func NewWatcher(r *registry.Registry) (*Watcher, error) {
+func NewWatcher(baseDir string, r *registry.Registry, scanHandlers ...nodescan.Handler) (*Watcher, error) {
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 
+	s, err := nodescan.New(baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.Register(r); err != nil {
+		return nil, err
+	}
+
+	for _, h := range scanHandlers {
+		if err := s.Register(h); err != nil {
+			return nil, err
+		}
+	}
+
 	watcher := &Watcher{
 		registry:      r,
+		scanner:       s,
 		dirtyServices: make(map[string]struct{}),
 		eventSignal:   make(chan struct{}, 1),
 		fsWatcher:     fw,
@@ -56,7 +74,7 @@ func (w *Watcher) addRecursive(root string) error {
 
 func (w *Watcher) Start() error {
 	// Initial Scan
-	if err := w.registry.Scan(""); err != nil {
+	if err := w.scanner.Scan(""); err != nil {
 		return err
 	}
 
@@ -66,7 +84,7 @@ func (w *Watcher) Start() error {
 	go w.listenEvents(ctx)
 	go w.runWorkerLoop(ctx)
 
-	root := w.registry.BaseDir()
+	root := w.scanner.BaseDir()
 	if err := w.addRecursive(root); err != nil {
 		return err
 	}
@@ -75,7 +93,7 @@ func (w *Watcher) Start() error {
 }
 
 func (w *Watcher) listenEvents(ctx context.Context) {
-	baseDir := w.registry.BaseDir()
+	baseDir := w.scanner.BaseDir()
 	for {
 		select {
 		case <-ctx.Done():
@@ -145,14 +163,14 @@ func (w *Watcher) runWorkerLoop(ctx context.Context) {
 			w.dirtyMu.Unlock()
 
 			for _, svcName := range toScan {
-				w.registry.Scan(svcName)
+				w.scanner.Scan(svcName)
 				logs.Out.Debug("Targeted scan completed", zap.String("service", svcName))
 			}
 
 		case <-ticker.C:
 			tickCount++
 			if tickCount >= ticksPerFullScan {
-				if err := w.registry.Scan(""); err != nil {
+				if err := w.scanner.Scan(""); err != nil {
 					logs.Out.Error("Full registry scan failed", zap.Error(err))
 				} else {
 					logs.Out.Debug("Scheduled full scan completed")
