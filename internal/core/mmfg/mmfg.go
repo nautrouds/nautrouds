@@ -23,7 +23,8 @@ type Request interface {
 	URL() (*url.URL, error)
 	SetURL(rawURL string) error
 	Header(key string) (string, error)
-	UpdateHeader(key string, newValue string) error
+	CloneHeaders() (http.Header, error)
+	UpdateHeader(key string, newValue ...string) error
 	DeleteHeader(key string) error
 	Next(nodeName string) (bool, error)
 	Apply() error

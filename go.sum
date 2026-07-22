@@ -26,6 +26,10 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/nautrouds/mmfg-http v0.1.0 h1:CdVionsYwy9AuXW0wMuzuI2KSnoJ1knTrhlPgZd27vc=
 github.com/nautrouds/mmfg-http v0.1.0/go.mod h1:u4oywC93+1FLoBSn/Ho5Uy4S3UXOiiRi9RhFP+GhpKg=
+github.com/nautrouds/mmfg-http v0.2.0 h1:JZBKwYfCs7UuIt+f02/AJH4xUx5Ue7WuVxPg9JxINXM=
+github.com/nautrouds/mmfg-http v0.2.0/go.mod h1:u4oywC93+1FLoBSn/Ho5Uy4S3UXOiiRi9RhFP+GhpKg=
+github.com/nautrouds/mmfg-http v0.3.0 h1:P8cmipEq15OEm6tPlGkedN4o0jpZh0keOp6asmrY+YA=
+github.com/nautrouds/mmfg-http v0.3.0/go.mod h1:u4oywC93+1FLoBSn/Ho5Uy4S3UXOiiRi9RhFP+GhpKg=
 github.com/nautrouds/mmfg/v2 v2.0.0 h1:nBY5XTU2QkbRLUeEeMZPdVeyKoH/Cz9QE+XLxWqMyi8=
 github.com/nautrouds/mmfg/v2 v2.0.0/go.mod h1:QJGiczdH0KQlFz95lkoYiNCosBolgYmHY5q+h0Sb67g=
 github.com/nautrouds/tentacle-metrics v1.1.0 h1:nvcTOmFZTJRjgNFgsl4wqgH0d10D55YWhV07x/U11do=
