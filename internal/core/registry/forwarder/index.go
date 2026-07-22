@@ -3,8 +3,10 @@ package forwarder
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"nautrouds/internal/core/metrics"
+	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/tempresp"
 	"net"
 	"net/http"
@@ -20,6 +22,7 @@ type proxyErrorKey struct{}
 var (
 	ErrNodeUnavailable   = errors.New("Node Unavailable")
 	ErrMiddlewareBlocked = errors.New("Middleware Blocked")
+	ErrServerError       = errors.New("Server Error")
 )
 
 var forbiddenHeaders = map[string]bool{
@@ -117,12 +120,11 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 }
 
 // ForwardMiddleware sends a GET request to the middleware service.
-// Returns nil if the middleware approved (204), ErrNodeUnavailable if the node
-// is unreachable (caller should retry with another node), or ErrMiddlewareBlocked
-// if the middleware intentionally blocked the request (response already written to w).
-// On approval, only response headers listed in allowedHeaders are copied back
-// onto the request — anything else the middleware returns is dropped.
-func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, path string, allowedHeaders []string) error {
+// nil: approved (204, allowedHeaders copied back onto the request).
+// ErrNodeUnavailable: node unreachable, caller should retry another node.
+// ErrMiddlewareBlocked: middleware blocked the request, response already written to w.
+// wrapped ErrServerError: mmfg header read/write failed, wrapped error carries the cause.
+func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, path string, allowedHeaders []string) error {
 	if f.isFailed.Load() {
 		return ErrNodeUnavailable
 	}
@@ -143,7 +145,15 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 		return ErrNodeUnavailable
 	}
 
-	request.Header = r.Header.Clone()
+	if mr != nil {
+		headers, err := mr.CloneHeaders()
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrServerError, err)
+		}
+		request.Header = headers
+	} else {
+		request.Header = r.Header.Clone()
+	}
 	request.Host = r.Host
 
 	request.Header.Set("X-Real-IP", r.RemoteAddr)
@@ -170,9 +180,19 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 			if len(values) == 0 {
 				continue
 			}
-			r.Header.Del(key)
-			for _, value := range values {
-				r.Header.Add(key, value)
+
+			if mr != nil {
+				if err := mr.DeleteHeader(key); err != nil {
+					return fmt.Errorf("%w: %v", ErrServerError, err)
+				}
+				if err := mr.UpdateHeader(key, values...); err != nil {
+					return fmt.Errorf("%w: %v", ErrServerError, err)
+				}
+			} else {
+				r.Header.Del(key)
+				for _, value := range values {
+					r.Header.Add(key, value)
+				}
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)
