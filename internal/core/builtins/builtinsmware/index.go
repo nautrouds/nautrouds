@@ -1,8 +1,10 @@
 package builtinsmware
 
 import (
+	"encoding/base64"
 	"fmt"
 	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/tempresp"
 	"net"
 	"net/http"
@@ -13,9 +15,9 @@ import (
 )
 
 type MiddlewareFactory func(args ...string) HandlerFunc
-type HandlerFunc = func(*tempresp.ResponseWriter, *http.Request)
+type HandlerFunc = func(*tempresp.ResponseWriter, *http.Request, mmfg.Request)
 
-func InvalidMiddleware(w *tempresp.ResponseWriter, r *http.Request) {
+func InvalidMiddleware(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 	w.Reply("Internal Server Error", http.StatusInternalServerError)
 }
 
@@ -23,70 +25,159 @@ func InvalidMiddleware(w *tempresp.ResponseWriter, r *http.Request) {
 
 func SetHeader(args ...string) HandlerFunc {
 	key, val := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
-		r.Header.Set(key, val)
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		if mr != nil {
+			if err := mr.UpdateHeader(key, val); err != nil {
+				replyMmfgError(w, "Failed to update mmfg request header", err)
+			}
+		} else {
+			r.Header.Set(key, val)
+		}
 	}
 }
 
 func DelHeader(args ...string) HandlerFunc {
 	key, _ := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
-		r.Header.Del(key)
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		if mr != nil {
+			if err := mr.DeleteHeader(key); err != nil {
+				replyMmfgError(w, "Failed to delete mmfg request header", err)
+			}
+		} else {
+			r.Header.Del(key)
+		}
 	}
 }
 
 func SetHost(args ...string) HandlerFunc {
 	host, _ := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		r.Host = host
 	}
 }
 
 // --- Path & Query Operations ---
 
+func getURL(r *http.Request, mr mmfg.Request) (*url.URL, error) {
+	if mr != nil {
+		return mr.URL()
+	}
+	return r.URL, nil
+}
+
+func replyMmfgError(w *tempresp.ResponseWriter, msg string, err error) {
+	logs.Out.Error(msg, zap.Error(err))
+	w.Reply("Internal Server Error", http.StatusInternalServerError)
+}
+
+func applyURL(u *url.URL, r *http.Request, mr mmfg.Request) error {
+	raw := u.RequestURI()
+	if mr != nil {
+		return mr.SetURL(raw)
+	}
+	r.RequestURI = raw
+	return nil
+}
+
 func PathTrimPrefix(args ...string) HandlerFunc {
 	prefix, _ := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		u, err := getURL(r, mr)
+		if err != nil {
+			replyMmfgError(w, "Failed to get request URL", err)
+			return
+		}
 
-		if after, ok := strings.CutPrefix(r.URL.Path, prefix); ok {
-			r.URL.Path = after
+		if after, ok := strings.CutPrefix(u.Path, prefix); ok {
+			u.Path = after
 
-			if r.URL.RawPath != "" {
-				r.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, url.PathEscape(prefix))
+			if u.RawPath != "" {
+				u.RawPath = strings.TrimPrefix(u.RawPath, url.PathEscape(prefix))
 			}
-			r.RequestURI = r.URL.RequestURI()
+
+			if err := applyURL(u, r, mr); err != nil {
+				replyMmfgError(w, "Failed to write request URL", err)
+				return
+			}
 		}
 	}
 }
 
 func RewritePath(args ...string) HandlerFunc {
 	old, new := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
-		r.URL.Path = strings.ReplaceAll(r.URL.Path, old, new)
-
-		if r.URL.RawPath != "" {
-			r.URL.RawPath = strings.ReplaceAll(r.URL.RawPath, old, new)
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		u, err := getURL(r, mr)
+		if err != nil {
+			replyMmfgError(w, "Failed to get request URL", err)
+			return
 		}
-		r.RequestURI = r.URL.RequestURI()
+
+		u.Path = strings.ReplaceAll(u.Path, old, new)
+
+		if u.RawPath != "" {
+			u.RawPath = strings.ReplaceAll(u.RawPath, old, new)
+		}
+
+		if err := applyURL(u, r, mr); err != nil {
+			replyMmfgError(w, "Failed to write request URL", err)
+			return
+		}
 	}
 }
 
 func SetQuery(args ...string) HandlerFunc {
 	key, val := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		u, err := getURL(r, mr)
+		if err != nil {
+			replyMmfgError(w, "Failed to get request URL", err)
+			return
+		}
+		q := u.Query()
 		q.Set(key, val)
-		r.URL.RawQuery = q.Encode()
-		r.RequestURI = r.URL.RequestURI()
+		u.RawQuery = q.Encode()
+		if err := applyURL(u, r, mr); err != nil {
+			replyMmfgError(w, "Failed to write request URL", err)
+			return
+		}
 	}
 }
 
 // --- Security & Auth ---
 
+func parseBasicAuth(auth string) (username, password string, ok bool) {
+	const prefix = "Basic "
+	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
+		return "", "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+	if err != nil {
+		return "", "", false
+	}
+	username, password, ok = strings.Cut(string(decoded), ":")
+	if !ok {
+		return "", "", false
+	}
+	return username, password, true
+}
+
 func BasicAuth(args ...string) HandlerFunc {
 	user, pass := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
-		u, p, ok := r.BasicAuth()
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		var u, p string
+		var ok bool
+
+		if mr != nil {
+			auth, err := mr.Header("Authorization")
+			if err != nil {
+				replyMmfgError(w, "Failed to read mmfg request header", err)
+				return
+			}
+			u, p, ok = parseBasicAuth(auth)
+		} else {
+			u, p, ok = r.BasicAuth()
+		}
+
 		if !ok || u != user || p != pass {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Nautrouds Protected"`)
 			w.WriteHeader(http.StatusUnauthorized)
@@ -104,7 +195,7 @@ func IPAllow(args ...string) HandlerFunc {
 		logs.Out.Error("IPAllow error: invalid CIDR", zap.Error(err))
 		return InvalidMiddleware
 	}
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		ipStr, _, _ := net.SplitHostPort(r.RemoteAddr)
 		ip := net.ParseIP(ipStr)
 		if !ipNet.Contains(ip) {
@@ -117,7 +208,7 @@ func IPAllow(args ...string) HandlerFunc {
 
 func Log(args ...string) HandlerFunc {
 	prefix, _ := parseTwoArgs(args)
-	return func(w *tempresp.ResponseWriter, r *http.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		fmt.Printf("[%s] %s %s from %s\n", prefix, r.Method, r.URL.Path, r.RemoteAddr)
 	}
 }
