@@ -1,12 +1,16 @@
 package proxy
 
 import (
+	"context"
+	"errors"
 	"nautrouds/internal/core/builtins/builtinsmware"
 	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/registry/forwarder"
 	"nautrouds/internal/interpolate"
 	"net/http"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -16,6 +20,8 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 	if mwCount == 0 {
 		return false
 	}
+
+	var mr mmfg.Request
 
 	baseOffset := s.node.ActionIndex + 2
 	for i := range mwCount {
@@ -36,6 +42,46 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 
 		s.tempResp.Setup(s.w)
 
+		if strings.HasPrefix(mwExpr, "$mmfg(") {
+			if mr == nil {
+
+				if !mmfg.IsAvailable {
+					logs.Out.Error("mmfg Unavailable", zap.String("expr", mwExpr))
+					http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+					return true
+				}
+
+				ctx, cancel := context.WithTimeout(s.r.Context(), time.Second*1)
+				defer cancel()
+				req, err := m.Mmfg.Request(ctx, s.r)
+				if err != nil {
+					logs.Out.Error("mmfg Request Error", zap.String("expr", mwExpr), zap.Error(err))
+					http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+					return true
+				}
+				mr = req
+			}
+
+			node := mwExpr[6 : len(mwExpr)-1]
+			selfRespond, err := mr.Next(node)
+			if err != nil {
+				logs.Out.Error("mmfg Next Error", zap.String("node", node), zap.Error(err))
+				http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+				return true
+			}
+
+			if selfRespond {
+				err := mr.AcceptSelfResponse(s.w)
+				if err != nil {
+					logs.Out.Error("mmfg AcceptSelfResponse Error", zap.String("node", node), zap.Error(err))
+					http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+				}
+				return true
+			}
+
+			continue
+		}
+
 		if strings.HasPrefix(mwExpr, "$") {
 			var handler builtinsmware.HandlerFunc
 			if isStatic {
@@ -48,7 +94,7 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 				http.Error(s.w, ErrInternal, http.StatusInternalServerError)
 				return true
 			}
-			handler(s.tempResp, s.r)
+			handler(s.tempResp, s.r, mr)
 			if s.tempResp.GetCode() != http.StatusOK {
 				if !s.tempResp.IsPassthrough() {
 					s.tempResp.WriteTo(s.w)
@@ -66,13 +112,18 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 			mwNodes := m.Registry.GetForwarders(ext.FuncName)
 			approved := false
 			for _, mw := range mwNodes {
-				mwErr := mw.ForwardMiddleware(s.tempResp, s.r, ext.Path, ext.AllowedHeaders)
+				mwErr := mw.ForwardMiddleware(s.tempResp, s.r, mr, ext.Path, ext.AllowedHeaders)
 				if mwErr == nil {
 					approved = true
 					break
 				}
 				if mwErr == forwarder.ErrNodeUnavailable {
 					continue
+				}
+				if errors.Is(mwErr, forwarder.ErrServerError) {
+					logs.Out.Error("mmfg Request Header Error", zap.String("expr", mwExpr), zap.Error(mwErr))
+					http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+					return true
 				}
 				// Middleware intentionally blocked — response already written to tempResp.
 				if !s.tempResp.IsPassthrough() {
@@ -88,6 +139,14 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 		}
 
 		s.tempResp.Reset()
+	}
+
+	if mr != nil {
+		if err := mr.Apply(); err != nil {
+			logs.Out.Error("mmfg Apply Error", zap.Error(err))
+			http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+			return true
+		}
 	}
 
 	return false
