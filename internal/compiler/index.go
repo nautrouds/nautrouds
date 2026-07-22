@@ -90,12 +90,29 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 				currentRule.Tags = append(currentRule.Tags, trimmed)
 			// Compile-time validation for built-in middlewares
 			case '$':
-				valid, name := builtinsmware.IsValid(trimmed)
-				if !valid {
-					if name == "" {
-						return nil, fmt.Errorf("line %d: invalid builtin middleware syntax: %s", lineCount, trimmed)
+				const mmfgPrefix = "$mmfg("
+				switch {
+				case strings.HasPrefix(trimmed, mmfgPrefix):
+					if !strings.HasSuffix(trimmed, ")") {
+						return nil, fmt.Errorf("line %d: invalid $mmfg syntax (missing closing paren): %s", lineCount, trimmed)
 					}
-					return nil, fmt.Errorf("line %d: unknown builtin middleware: %s", lineCount, name)
+					node := trimmed[len(mmfgPrefix) : len(trimmed)-1]
+					if node == "" {
+						return nil, fmt.Errorf("line %d: invalid $mmfg syntax (empty node name): %s", lineCount, trimmed)
+					}
+					if strings.ContainsAny(node, "()") {
+						return nil, fmt.Errorf("line %d: invalid $mmfg node name: %s", lineCount, trimmed)
+					}
+				case strings.HasPrefix(trimmed, "$mmfg"):
+					return nil, fmt.Errorf("line %d: invalid $mmfg syntax (expected $mmfg(nodeName)): %s", lineCount, trimmed)
+				default:
+					valid, name := builtinsmware.IsValid(trimmed)
+					if !valid {
+						if name == "" {
+							return nil, fmt.Errorf("line %d: invalid builtin middleware syntax: %s", lineCount, trimmed)
+						}
+						return nil, fmt.Errorf("line %d: unknown builtin middleware: %s", lineCount, name)
+					}
 				}
 				fallthrough
 			default:
