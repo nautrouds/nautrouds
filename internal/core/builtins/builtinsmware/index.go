@@ -1,6 +1,7 @@
 package builtinsmware
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"nautrouds/internal/core/logs"
@@ -185,6 +186,27 @@ func BasicAuth(args ...string) HandlerFunc {
 	}
 }
 
+func RequireHeader(args ...string) HandlerFunc {
+	key, val := parseTwoArgs(args)
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		var got string
+		if mr != nil {
+			h, err := mr.Header(key)
+			if err != nil {
+				replyMmfgError(w, "Failed to read mmfg request header", err)
+				return
+			}
+			got = h
+		} else {
+			got = r.Header.Get(key)
+		}
+
+		if subtle.ConstantTimeCompare([]byte(got), []byte(val)) != 1 {
+			w.Reply("Forbidden", http.StatusForbidden)
+		}
+	}
+}
+
 func IPAllow(args ...string) HandlerFunc {
 	if len(args) != 1 {
 		logs.Out.Error("IPAllow error: expected 1 argument")
@@ -223,6 +245,7 @@ var Registry = map[string]MiddlewareFactory{
 	"$RewritePath":    RewritePath,
 	"$SetQuery":       SetQuery,
 	"$BasicAuth":      BasicAuth,
+	"$RequireHeader":  RequireHeader,
 	"$IPAllow":        IPAllow,
 	"$Log":            Log,
 }

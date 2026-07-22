@@ -207,6 +207,50 @@ func TestBasicAuth_Mmfg_NoHeader(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.GetCode())
 }
 
+func TestRequireHeader_Match(t *testing.T) {
+	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Internal", "yes")
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusOK, w.GetCode())
+}
+
+func TestRequireHeader_Mismatch(t *testing.T) {
+	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Internal", "no")
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusForbidden, w.GetCode())
+}
+
+func TestRequireHeader_Missing(t *testing.T) {
+	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusForbidden, w.GetCode())
+}
+
+func TestRequireHeader_Mmfg_Match(t *testing.T) {
+	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	mr := &fakeMmfgRequest{headers: map[string]string{"X-Internal": "yes"}}
+	fn(w, req, mr)
+	assert.Equal(t, http.StatusOK, w.GetCode())
+}
+
+func TestRequireHeader_Mmfg_Mismatch(t *testing.T) {
+	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	mr := &fakeMmfgRequest{headers: map[string]string{}}
+	fn(w, req, mr)
+	assert.Equal(t, http.StatusForbidden, w.GetCode())
+}
+
 func TestIPAllow_AllowedIP(t *testing.T) {
 	fn := builtinsmware.IPAllow("192.0.2.0/24")
 	w, _ := newWriter()
@@ -267,6 +311,7 @@ func TestIsValid(t *testing.T) {
 		{"$RewritePath(/old, /new)", true},
 		{"$SetQuery(k, v)", true},
 		{"$BasicAuth(user, pass)", true},
+		{"$RequireHeader(X-Internal, yes)", true},
 		{"$IPAllow(10.0.0.0/8)", true},
 		{"$Log(prefix)", true},
 		{"$UnknownMiddleware", false},

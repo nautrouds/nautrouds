@@ -51,6 +51,7 @@ Middlewares are applied to a route via indentation.
 | `$RewritePath` | `(old, new)` | Replaces pattern in URL path. |
 | `$SetQuery` | `(key, value)` | Sets a query parameter. |
 | `$BasicAuth` | `(user, pass)` | Basic Authentication. |
+| `$RequireHeader` | `(key, value)` | Rejects the request with `403` unless the header equals `value`. |
 | `$IPAllow` | `(cidr)` | Restricts access by CIDR. |
 | `$Log` | `(prefix)` | Logs request info to stdout. |
 
@@ -68,6 +69,20 @@ auth-service(/check, header=X-User-Id, header=X-User-Role)
 | :--- | :--- |
 | `args[0]` | Path invoked on the middleware's UDS service (default `/`). |
 | `args[1:]` with a `header=` prefix | Allowlist of response headers copied back onto the request when the middleware approves (204). Any other response header is dropped. Args without this prefix are ignored. |
+
+---
+
+## mmfg Middleware ($mmfg)
+
+`$mmfg(service/node)` forwards the request to a node registered via [mmfg-http](https://github.com/nautrouds/mmfg-http) instead of the plain HTTP-over-UDS path used by regular middlewares/services.
+
+```text
+GET /api/* backend-service
+    $mmfg(mmfg-service/auth)
+```
+
+- **unix-only**: mmfg is unavailable on non-unix builds. A route hitting `$mmfg(...)` on such a build returns `500`.
+- The node's UDS must be a `unixpacket` (not `unix`/stream) socket, named `<node>.mmfg`; an optional `<node>.ctl.mmfg` control socket (also `unixpacket`) enables self-respond.
 
 ---
 
