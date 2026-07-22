@@ -208,17 +208,40 @@ func RequireHeader(args ...string) HandlerFunc {
 }
 
 func IPAllow(args ...string) HandlerFunc {
-	if len(args) != 1 {
-		logs.Out.Error("IPAllow error: expected 1 argument")
+	var headerKey, cidr string
+	switch len(args) {
+	case 1:
+		cidr = args[0]
+	case 2:
+		headerKey, cidr = args[0], args[1]
+	default:
+		logs.Out.Error("IPAllow error: expected 1 or 2 arguments")
 		return InvalidMiddleware
 	}
-	_, ipNet, err := net.ParseCIDR(args[0])
+
+	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		logs.Out.Error("IPAllow error: invalid CIDR", zap.Error(err))
 		return InvalidMiddleware
 	}
+
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
-		ipStr, _, _ := net.SplitHostPort(r.RemoteAddr)
+		var ipStr string
+		if headerKey != "" {
+			if mr != nil {
+				h, err := mr.Header(headerKey)
+				if err != nil {
+					replyMmfgError(w, "Failed to read mmfg request header", err)
+					return
+				}
+				ipStr = h
+			} else {
+				ipStr = r.Header.Get(headerKey)
+			}
+		} else {
+			ipStr, _, _ = net.SplitHostPort(r.RemoteAddr)
+		}
+
 		ip := net.ParseIP(ipStr)
 		if !ipNet.Contains(ip) {
 			w.Reply("Forbidden", http.StatusForbidden)

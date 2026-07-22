@@ -52,7 +52,7 @@ Middlewares are applied to a route via indentation.
 | `$SetQuery` | `(key, value)` | Sets a query parameter. |
 | `$BasicAuth` | `(user, pass)` | Basic Authentication. |
 | `$RequireHeader` | `(key, value)` | Rejects the request with `403` unless the header equals `value`. |
-| `$IPAllow` | `(cidr)` | Restricts access by CIDR. |
+| `$IPAllow` | `(cidr)` or `(headerKey, cidr)` | Restricts access by CIDR. With one argument, matches against `RemoteAddr`; with two, uses the value of `headerKey` in place of `RemoteAddr`. |
 | `$Log` | `(prefix)` | Logs request info to stdout. |
 
 ---
