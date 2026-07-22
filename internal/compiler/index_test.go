@@ -1,6 +1,7 @@
 package compiler_test
 
 import (
+	"fmt"
 	"nautrouds/internal/compiler"
 	"nautrouds/internal/rtree"
 	"testing"
@@ -93,4 +94,51 @@ GET example.com/api svc
 	_, err := compiler.ParseString(script)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown builtin middleware")
+}
+
+func TestParse_ValidMmfg(t *testing.T) {
+	script := `
+GET example.com/api svc
+    $mmfg(mmfg-service/echo)
+`
+	tree, err := compiler.ParseString(script)
+	require.NoError(t, err)
+	require.NotNil(t, tree)
+
+	url := []byte("example.com/api")
+	rtree.ReverseHost(url)
+	node, exists := tree.Search(url)
+	require.True(t, exists)
+
+	mwCount := tree.ActionMetadata[node.ActionIndex+1]
+	var mws []string
+	for i := range mwCount {
+		mwMetaIndex := tree.ActionMetadata[node.ActionIndex+2+i]
+		mws = append(mws, tree.GetActionName(tree.ActionMetadata[mwMetaIndex]))
+	}
+	assert.ElementsMatch(t, []string{"$mmfg(mmfg-service/echo)"}, mws)
+}
+
+func TestParse_InvalidMmfg(t *testing.T) {
+	cases := []struct {
+		name string
+		expr string
+	}{
+		{"MissingClosingParen", "$mmfg("},
+		{"EmptyNodeName", "$mmfg()"},
+		{"UnterminatedNodeName", "$mmfg(foo"},
+		{"NoParens", "$mmfg"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			script := fmt.Sprintf(`
+GET example.com/api svc
+    %s
+`, c.expr)
+			_, err := compiler.ParseString(script)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid $mmfg")
+		})
+	}
 }
