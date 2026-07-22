@@ -278,11 +278,40 @@ func TestIPAllow_InvalidCIDR_FallsBackToInvalidMiddleware(t *testing.T) {
 }
 
 func TestIPAllow_WrongArgCount_FallsBackToInvalidMiddleware(t *testing.T) {
-	fn := builtinsmware.IPAllow("10.0.0.0/8", "extra")
+	fn := builtinsmware.IPAllow("10.0.0.0/8", "extra", "extra2")
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req, nil)
 	assert.Equal(t, http.StatusInternalServerError, w.GetCode())
+}
+
+func TestIPAllow_HeaderKey_AllowedIP(t *testing.T) {
+	fn := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Real-IP", "192.0.2.1")
+	req.RemoteAddr = "10.0.0.1:1234"
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusOK, w.GetCode())
+}
+
+func TestIPAllow_HeaderKey_BlockedIP(t *testing.T) {
+	fn := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Real-IP", "10.0.0.1")
+	req.RemoteAddr = "192.0.2.1:1234"
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusForbidden, w.GetCode())
+}
+
+func TestIPAllow_HeaderKey_Mmfg_AllowedIP(t *testing.T) {
+	fn := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	mr := &fakeMmfgRequest{headers: map[string]string{"X-Real-IP": "192.0.2.1"}}
+	fn(w, req, mr)
+	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
 func TestLog_DoesNotPanic(t *testing.T) {
