@@ -148,6 +148,11 @@ func (m *Manager) StartUDSListener(ctx context.Context, socketPath string) error
 		listener.Close()
 	}()
 
+	server := &http.Server{Handler: m}
+	server.Protocols = new(http.Protocols)
+	server.Protocols.SetHTTP1(true)
+	server.Protocols.SetUnencryptedHTTP2(true)
+
 	logs.Out.Info("Nautrouds Core listening on UDS", zap.String("socketPath", socketPath))
-	return http.Serve(listener, m)
+	return server.Serve(listener)
 }
