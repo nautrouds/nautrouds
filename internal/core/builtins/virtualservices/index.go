@@ -14,7 +14,10 @@ import (
 
 // --- Internal Virtual Services ---
 
-func Echo(args ...string) http.HandlerFunc {
+func Echo(args ...string) (http.HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 0, 0); err != nil {
+		return nil, fmt.Errorf("$echo: %w", err)
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -33,10 +36,13 @@ func Echo(args ...string) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(data)
-	}
+	}, nil
 }
 
-func OK(args ...string) http.HandlerFunc {
+func OK(args ...string) (http.HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 0, 1); err != nil {
+		return nil, fmt.Errorf("$ok: %w", err)
+	}
 	msg := "OK"
 	if len(args) > 0 && args[0] != "" {
 		msg = args[0]
@@ -44,10 +50,13 @@ func OK(args ...string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(msg))
-	}
+	}, nil
 }
 
-func ERR(args ...string) http.HandlerFunc {
+func ERR(args ...string) (http.HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 0, 2); err != nil {
+		return nil, fmt.Errorf("$err: %w", err)
+	}
 	code := http.StatusBadRequest
 	msg := "ERR"
 
@@ -67,27 +76,30 @@ func ERR(args ...string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(code)
 		w.Write([]byte(msg))
-	}
+	}, nil
 }
 
-func Metrics(args ...string) http.HandlerFunc {
+func Metrics(args ...string) (http.HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 0, 0); err != nil {
+		return nil, fmt.Errorf("$metrics: %w", err)
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		metrics.Global.WritePrometheus(w, r)
-	}
+	}, nil
 }
 
 // --- Redirect ---
 
-func Redirect(args ...string) http.HandlerFunc {
-	if len(args) < 2 {
-		return func(w http.ResponseWriter, r *http.Request) {}
+func Redirect(args ...string) (http.HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
+		return nil, fmt.Errorf("$redirect: %w", err)
 	}
 	code, _ := strconv.Atoi(args[0])
 	target := args[1]
 	return func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, code)
-	}
+	}, nil
 }
 
 func Discovery(state map[string][]string) http.HandlerFunc {
@@ -97,7 +109,10 @@ func Discovery(state map[string][]string) http.HandlerFunc {
 	}
 }
 
-func JSON(args ...string) http.HandlerFunc {
+func JSON(args ...string) (http.HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 0, 1); err != nil {
+		return nil, fmt.Errorf("$json: %w", err)
+	}
 	data := "{}"
 	if len(args) > 0 {
 		data = args[0]
@@ -106,7 +121,7 @@ func JSON(args ...string) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(data))
-	}
+	}, nil
 }
 
 func Ping(targetService string, nodes []string) http.HandlerFunc {

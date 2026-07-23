@@ -47,3 +47,30 @@ func TestParseDirective(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckArgCount(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		min     int
+		max     int
+		wantErr bool
+	}{
+		{"within range", []string{"a", "b"}, 1, 2, false},
+		{"exact match", []string{"a"}, 1, 1, false},
+		{"too few", []string{}, 1, 2, true},
+		{"too many", []string{"a", "b", "c"}, 1, 2, true},
+		{"too few, exact", []string{}, 2, 2, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n, err := CheckArgCount(tt.args, tt.min, tt.max)
+			assert.Equal(t, len(tt.args), n)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

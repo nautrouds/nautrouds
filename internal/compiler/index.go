@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/builtins/builtinsmware"
 	"nautrouds/internal/core/builtins/virtualservices"
 	"nautrouds/internal/core/mmfg"
@@ -79,6 +80,13 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 					}
 					return nil, fmt.Errorf("line %d: unknown virtual service: %s", lineCount, name)
 				}
+				if funcName, args, err := builtins.ParseDirective(rule.Service); err == nil {
+					if factory, ok := virtualservices.Registry[funcName]; ok && factory != nil {
+						if _, err := factory(args...); err != nil {
+							return nil, fmt.Errorf("line %d: %s", lineCount, err)
+						}
+					}
+				}
 			}
 
 			rawRules = append(rawRules, rule)
@@ -107,6 +115,13 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 							return nil, fmt.Errorf("line %d: invalid builtin middleware syntax: %s", lineCount, trimmed)
 						}
 						return nil, fmt.Errorf("line %d: unknown builtin middleware: %s", lineCount, name)
+					}
+					if funcName, args, err := builtins.ParseDirective(trimmed); err == nil {
+						if factory, ok := builtinsmware.Registry[funcName]; ok {
+							if _, err := factory(args...); err != nil {
+								return nil, fmt.Errorf("line %d: %s", lineCount, err)
+							}
+						}
 					}
 				}
 				fallthrough

@@ -185,6 +185,25 @@ GET,PSOT example.com/api svc
 	assert.Contains(t, err.Error(), "unknown HTTP method: PSOT")
 }
 
+func TestParse_InvalidBuiltinArgCount(t *testing.T) {
+	script := `
+GET example.com/api svc
+    $SetHeader(a, b, c)
+`
+	_, err := compiler.ParseString(script)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "$SetHeader")
+}
+
+func TestParse_InvalidVirtualServiceArgCount(t *testing.T) {
+	script := `
+GET example.com/api $redirect(301)
+`
+	_, err := compiler.ParseString(script)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "$redirect")
+}
+
 func TestParse_ValidExternalMiddleware(t *testing.T) {
 	script := `
 GET example.com/api svc

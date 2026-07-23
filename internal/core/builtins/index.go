@@ -2,11 +2,23 @@ package builtins
 
 import (
 	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strings"
 )
 
-type Factory func(args ...string) http.HandlerFunc
+type Factory func(args ...string) (http.HandlerFunc, error)
+
+func CheckArgCount(args []string, min, max int) (int, error) {
+	n := len(args)
+	if n < min || n > max {
+		if min == max {
+			return n, fmt.Errorf("expected %d argument(s), got %d", min, n)
+		}
+		return n, fmt.Errorf("expected %d-%d argument(s), got %d", min, max, n)
+	}
+	return n, nil
+}
 
 func ParseArguments(input string) ([]string, error) {
 	r := csv.NewReader(strings.NewReader(input))

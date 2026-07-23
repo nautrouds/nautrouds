@@ -11,6 +11,7 @@ import (
 	"nautrouds/internal/core/tempresp"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeMmfgRequest is a minimal mmfg.Request stub for exercising middleware
@@ -45,7 +46,8 @@ func newWriter() (*tempresp.ResponseWriter, *httptest.ResponseRecorder) {
 }
 
 func TestSetHeader(t *testing.T) {
-	fn := builtinsmware.SetHeader("X-Custom", "hello")
+	fn, err := builtinsmware.SetHeader("X-Custom", "hello")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req, nil)
@@ -53,7 +55,8 @@ func TestSetHeader(t *testing.T) {
 }
 
 func TestSetHeader_Overwrite(t *testing.T) {
-	fn := builtinsmware.SetHeader("X-Custom", "new")
+	fn, err := builtinsmware.SetHeader("X-Custom", "new")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Custom", "old")
@@ -62,7 +65,8 @@ func TestSetHeader_Overwrite(t *testing.T) {
 }
 
 func TestDelHeader(t *testing.T) {
-	fn := builtinsmware.DelHeader("X-Remove")
+	fn, err := builtinsmware.DelHeader("X-Remove")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Remove", "value")
@@ -71,7 +75,8 @@ func TestDelHeader(t *testing.T) {
 }
 
 func TestDelHeader_NonExistent(t *testing.T) {
-	fn := builtinsmware.DelHeader("X-Missing")
+	fn, err := builtinsmware.DelHeader("X-Missing")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	// Should not panic when deleting a header that doesn't exist
@@ -79,7 +84,8 @@ func TestDelHeader_NonExistent(t *testing.T) {
 }
 
 func TestSetHost(t *testing.T) {
-	fn := builtinsmware.SetHost("override.example.com")
+	fn, err := builtinsmware.SetHost("override.example.com")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req, nil)
@@ -87,7 +93,8 @@ func TestSetHost(t *testing.T) {
 }
 
 func TestPathTrimPrefix_Matches(t *testing.T) {
-	fn := builtinsmware.PathTrimPrefix("/api")
+	fn, err := builtinsmware.PathTrimPrefix("/api")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api/users", nil)
 	fn(w, req, nil)
@@ -95,7 +102,8 @@ func TestPathTrimPrefix_Matches(t *testing.T) {
 }
 
 func TestPathTrimPrefix_NoMatch(t *testing.T) {
-	fn := builtinsmware.PathTrimPrefix("/admin")
+	fn, err := builtinsmware.PathTrimPrefix("/admin")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api/users", nil)
 	fn(w, req, nil)
@@ -103,7 +111,8 @@ func TestPathTrimPrefix_NoMatch(t *testing.T) {
 }
 
 func TestPathTrimPrefix_UpdatesRequestURI(t *testing.T) {
-	fn := builtinsmware.PathTrimPrefix("/v1")
+	fn, err := builtinsmware.PathTrimPrefix("/v1")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/v1/items?q=test", nil)
 	fn(w, req, nil)
@@ -112,7 +121,8 @@ func TestPathTrimPrefix_UpdatesRequestURI(t *testing.T) {
 }
 
 func TestRewritePath(t *testing.T) {
-	fn := builtinsmware.RewritePath("/old", "/new")
+	fn, err := builtinsmware.RewritePath("/old", "/new")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/old/resource", nil)
 	fn(w, req, nil)
@@ -120,7 +130,8 @@ func TestRewritePath(t *testing.T) {
 }
 
 func TestRewritePath_NoMatch(t *testing.T) {
-	fn := builtinsmware.RewritePath("/old", "/new")
+	fn, err := builtinsmware.RewritePath("/old", "/new")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/other/resource", nil)
 	fn(w, req, nil)
@@ -128,7 +139,8 @@ func TestRewritePath_NoMatch(t *testing.T) {
 }
 
 func TestSetQuery_AddsKey(t *testing.T) {
-	fn := builtinsmware.SetQuery("version", "2")
+	fn, err := builtinsmware.SetQuery("version", "2")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api", nil)
 	fn(w, req, nil)
@@ -136,7 +148,8 @@ func TestSetQuery_AddsKey(t *testing.T) {
 }
 
 func TestSetQuery_PreservesExisting(t *testing.T) {
-	fn := builtinsmware.SetQuery("version", "2")
+	fn, err := builtinsmware.SetQuery("version", "2")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api?existing=true", nil)
 	fn(w, req, nil)
@@ -145,7 +158,8 @@ func TestSetQuery_PreservesExisting(t *testing.T) {
 }
 
 func TestBasicAuth_ValidCredentials(t *testing.T) {
-	fn := builtinsmware.BasicAuth("admin", "secret")
+	fn, err := builtinsmware.BasicAuth("admin", "secret")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.SetBasicAuth("admin", "secret")
@@ -154,7 +168,8 @@ func TestBasicAuth_ValidCredentials(t *testing.T) {
 }
 
 func TestBasicAuth_WrongPassword(t *testing.T) {
-	fn := builtinsmware.BasicAuth("admin", "secret")
+	fn, err := builtinsmware.BasicAuth("admin", "secret")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.SetBasicAuth("admin", "wrong")
@@ -163,7 +178,8 @@ func TestBasicAuth_WrongPassword(t *testing.T) {
 }
 
 func TestBasicAuth_NoHeader(t *testing.T) {
-	fn := builtinsmware.BasicAuth("admin", "secret")
+	fn, err := builtinsmware.BasicAuth("admin", "secret")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req, nil)
@@ -171,7 +187,8 @@ func TestBasicAuth_NoHeader(t *testing.T) {
 }
 
 func TestBasicAuth_SetsWWWAuthenticate(t *testing.T) {
-	fn := builtinsmware.BasicAuth("admin", "secret")
+	fn, err := builtinsmware.BasicAuth("admin", "secret")
+	require.NoError(t, err)
 	w, rec := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req, nil)
@@ -181,7 +198,8 @@ func TestBasicAuth_SetsWWWAuthenticate(t *testing.T) {
 }
 
 func TestBasicAuth_Mmfg_ValidCredentials(t *testing.T) {
-	fn := builtinsmware.BasicAuth("admin", "secret")
+	fn, err := builtinsmware.BasicAuth("admin", "secret")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"Authorization": "Basic YWRtaW46c2VjcmV0"}} // admin:secret
@@ -190,7 +208,8 @@ func TestBasicAuth_Mmfg_ValidCredentials(t *testing.T) {
 }
 
 func TestBasicAuth_Mmfg_WrongPassword(t *testing.T) {
-	fn := builtinsmware.BasicAuth("admin", "secret")
+	fn, err := builtinsmware.BasicAuth("admin", "secret")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"Authorization": "Basic YWRtaW46d3Jvbmc="}} // admin:wrong
@@ -199,7 +218,8 @@ func TestBasicAuth_Mmfg_WrongPassword(t *testing.T) {
 }
 
 func TestBasicAuth_Mmfg_NoHeader(t *testing.T) {
-	fn := builtinsmware.BasicAuth("admin", "secret")
+	fn, err := builtinsmware.BasicAuth("admin", "secret")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{}}
@@ -208,7 +228,8 @@ func TestBasicAuth_Mmfg_NoHeader(t *testing.T) {
 }
 
 func TestRequireHeader_Match(t *testing.T) {
-	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	fn, err := builtinsmware.RequireHeader("X-Internal", "yes")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Internal", "yes")
@@ -217,7 +238,8 @@ func TestRequireHeader_Match(t *testing.T) {
 }
 
 func TestRequireHeader_Mismatch(t *testing.T) {
-	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	fn, err := builtinsmware.RequireHeader("X-Internal", "yes")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Internal", "no")
@@ -226,7 +248,8 @@ func TestRequireHeader_Mismatch(t *testing.T) {
 }
 
 func TestRequireHeader_Missing(t *testing.T) {
-	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	fn, err := builtinsmware.RequireHeader("X-Internal", "yes")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	fn(w, req, nil)
@@ -234,7 +257,8 @@ func TestRequireHeader_Missing(t *testing.T) {
 }
 
 func TestRequireHeader_Mmfg_Match(t *testing.T) {
-	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	fn, err := builtinsmware.RequireHeader("X-Internal", "yes")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"X-Internal": "yes"}}
@@ -243,7 +267,8 @@ func TestRequireHeader_Mmfg_Match(t *testing.T) {
 }
 
 func TestRequireHeader_Mmfg_Mismatch(t *testing.T) {
-	fn := builtinsmware.RequireHeader("X-Internal", "yes")
+	fn, err := builtinsmware.RequireHeader("X-Internal", "yes")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{}}
@@ -252,7 +277,8 @@ func TestRequireHeader_Mmfg_Mismatch(t *testing.T) {
 }
 
 func TestIPAllow_AllowedIP(t *testing.T) {
-	fn := builtinsmware.IPAllow("192.0.2.0/24")
+	fn, err := builtinsmware.IPAllow("192.0.2.0/24")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
@@ -261,7 +287,8 @@ func TestIPAllow_AllowedIP(t *testing.T) {
 }
 
 func TestIPAllow_BlockedIP(t *testing.T) {
-	fn := builtinsmware.IPAllow("10.0.0.0/8")
+	fn, err := builtinsmware.IPAllow("10.0.0.0/8")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
@@ -269,24 +296,19 @@ func TestIPAllow_BlockedIP(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.GetCode())
 }
 
-func TestIPAllow_InvalidCIDR_FallsBackToInvalidMiddleware(t *testing.T) {
-	fn := builtinsmware.IPAllow("not-a-cidr")
-	w, _ := newWriter()
-	req := httptest.NewRequest("GET", "/", nil)
-	fn(w, req, nil)
-	assert.Equal(t, http.StatusInternalServerError, w.GetCode())
+func TestIPAllow_InvalidCIDR_ReturnsError(t *testing.T) {
+	_, err := builtinsmware.IPAllow("not-a-cidr")
+	assert.Error(t, err)
 }
 
-func TestIPAllow_WrongArgCount_FallsBackToInvalidMiddleware(t *testing.T) {
-	fn := builtinsmware.IPAllow("10.0.0.0/8", "extra", "extra2")
-	w, _ := newWriter()
-	req := httptest.NewRequest("GET", "/", nil)
-	fn(w, req, nil)
-	assert.Equal(t, http.StatusInternalServerError, w.GetCode())
+func TestIPAllow_WrongArgCount_ReturnsError(t *testing.T) {
+	_, err := builtinsmware.IPAllow("10.0.0.0/8", "extra", "extra2")
+	assert.Error(t, err)
 }
 
 func TestIPAllow_HeaderKey_AllowedIP(t *testing.T) {
-	fn := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	fn, err := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-IP", "192.0.2.1")
@@ -296,7 +318,8 @@ func TestIPAllow_HeaderKey_AllowedIP(t *testing.T) {
 }
 
 func TestIPAllow_HeaderKey_BlockedIP(t *testing.T) {
-	fn := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	fn, err := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-IP", "10.0.0.1")
@@ -306,7 +329,8 @@ func TestIPAllow_HeaderKey_BlockedIP(t *testing.T) {
 }
 
 func TestIPAllow_HeaderKey_Mmfg_AllowedIP(t *testing.T) {
-	fn := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	fn, err := builtinsmware.IPAllow("X-Real-IP", "192.0.2.0/24")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"X-Real-IP": "192.0.2.1"}}
@@ -315,18 +339,38 @@ func TestIPAllow_HeaderKey_Mmfg_AllowedIP(t *testing.T) {
 }
 
 func TestLog_DoesNotPanic(t *testing.T) {
-	fn := builtinsmware.Log("TEST")
+	fn, err := builtinsmware.Log("TEST")
+	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/path", nil)
 	req.RemoteAddr = "127.0.0.1:9999"
 	assert.NotPanics(t, func() { fn(w, req, nil) })
 }
 
-func TestInvalidMiddleware(t *testing.T) {
-	w, _ := newWriter()
-	req := httptest.NewRequest("GET", "/", nil)
-	builtinsmware.InvalidMiddleware(w, req, nil)
-	assert.Equal(t, http.StatusInternalServerError, w.GetCode())
+func TestArgCount_Errors(t *testing.T) {
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"SetHeader/TooFew", func() error { _, err := builtinsmware.SetHeader("a"); return err }},
+		{"SetHeader/TooMany", func() error { _, err := builtinsmware.SetHeader("a", "b", "c"); return err }},
+		{"DelHeader/TooFew", func() error { _, err := builtinsmware.DelHeader(); return err }},
+		{"DelHeader/TooMany", func() error { _, err := builtinsmware.DelHeader("a", "b"); return err }},
+		{"SetHost/TooFew", func() error { _, err := builtinsmware.SetHost(); return err }},
+		{"PathTrimPrefix/TooMany", func() error { _, err := builtinsmware.PathTrimPrefix("a", "b"); return err }},
+		{"RewritePath/TooFew", func() error { _, err := builtinsmware.RewritePath("a"); return err }},
+		{"SetQuery/TooFew", func() error { _, err := builtinsmware.SetQuery("a"); return err }},
+		{"BasicAuth/TooFew", func() error { _, err := builtinsmware.BasicAuth("a"); return err }},
+		{"RequireHeader/TooMany", func() error { _, err := builtinsmware.RequireHeader("a", "b", "c"); return err }},
+		{"IPAllow/TooFew", func() error { _, err := builtinsmware.IPAllow(); return err }},
+		{"IPAllow/TooMany", func() error { _, err := builtinsmware.IPAllow("a", "b", "c"); return err }},
+		{"Log/TooFew", func() error { _, err := builtinsmware.Log(); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Error(t, tt.call())
+		})
+	}
 }
 
 func TestIsValid(t *testing.T) {

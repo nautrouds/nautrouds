@@ -91,7 +91,11 @@ func buildVirtualHandler(expr string) http.HandlerFunc {
 	if !ok || factory == nil { // nil == $services/$ping, runtime-only
 		return nil
 	}
-	return factory(args...)
+	handler, err := factory(args...)
+	if err != nil {
+		return nil
+	}
+	return handler
 }
 
 func buildBuiltinHandler(expr string) builtinsmware.HandlerFunc {
@@ -103,7 +107,11 @@ func buildBuiltinHandler(expr string) builtinsmware.HandlerFunc {
 	if !ok {
 		return nil
 	}
-	return factory(args...)
+	handler, err := factory(args...)
+	if err != nil {
+		return nil
+	}
+	return handler
 }
 
 func buildExternalMW(expr string) ExternalMW {

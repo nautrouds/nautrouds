@@ -15,7 +15,11 @@ func TestEcho(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test?q=1", nil)
 	req.Header.Set("X-Custom", "hello")
 	w := httptest.NewRecorder()
-	Echo()(w, req)
+	h, err := Echo()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
@@ -38,7 +42,11 @@ func TestEcho(t *testing.T) {
 func TestOK_Default(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	OK()(w, req)
+	h, err := OK()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -51,7 +59,11 @@ func TestOK_Default(t *testing.T) {
 func TestOK_CustomMsg(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	OK("healthy")(w, req)
+	h, err := OK("healthy")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Body.String() != "healthy" {
 		t.Errorf("expected body healthy, got %q", w.Body.String())
@@ -61,7 +73,11 @@ func TestOK_CustomMsg(t *testing.T) {
 func TestOK_EmptyArgFallsBackToDefault(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	OK("")(w, req)
+	h, err := OK("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Body.String() != "OK" {
 		t.Errorf("expected default OK, got %q", w.Body.String())
@@ -71,7 +87,11 @@ func TestOK_EmptyArgFallsBackToDefault(t *testing.T) {
 func TestERR_Default(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	ERR()(w, req)
+	h, err := ERR()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -84,7 +104,11 @@ func TestERR_Default(t *testing.T) {
 func TestERR_NumericCodeOnly(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	ERR("503")(w, req)
+	h, err := ERR("503")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d", w.Code)
@@ -97,7 +121,11 @@ func TestERR_NumericCodeOnly(t *testing.T) {
 func TestERR_NumericCodeAndMsg(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	ERR("418", "I'm a teapot")(w, req)
+	h, err := ERR("418", "I'm a teapot")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != 418 {
 		t.Errorf("expected 418, got %d", w.Code)
@@ -110,7 +138,11 @@ func TestERR_NumericCodeAndMsg(t *testing.T) {
 func TestERR_StringMsg(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	ERR("custom error")(w, req)
+	h, err := ERR("custom error")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
@@ -121,30 +153,25 @@ func TestERR_StringMsg(t *testing.T) {
 }
 
 func TestRedirect_TooFewArgs(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	Redirect()(w, req)
-
-	// noop handler: no redirect headers, status stays 200
-	if loc := w.Header().Get("Location"); loc != "" {
-		t.Errorf("expected no Location header, got %q", loc)
+	if _, err := Redirect(); err == nil {
+		t.Error("expected error for 0 arguments")
 	}
 }
 
 func TestRedirect_OneArg(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	Redirect("301")(w, req) // still < 2 args → noop
-
-	if w.Header().Get("Location") != "" {
-		t.Error("expected no redirect with only one arg")
+	if _, err := Redirect("301"); err == nil {
+		t.Error("expected error for 1 argument")
 	}
 }
 
 func TestRedirect_Valid(t *testing.T) {
 	req := httptest.NewRequest("GET", "/old", nil)
 	w := httptest.NewRecorder()
-	Redirect("301", "/new")(w, req)
+	h, err := Redirect("301", "/new")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusMovedPermanently {
 		t.Errorf("expected 301, got %d", w.Code)
@@ -178,7 +205,11 @@ func TestDiscovery(t *testing.T) {
 func TestJSON_Default(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	JSON()(w, req)
+	h, err := JSON()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
@@ -191,7 +222,11 @@ func TestJSON_Default(t *testing.T) {
 func TestJSON_CustomPayload(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	JSON(`{"key":"val"}`)(w, req)
+	h, err := JSON(`{"key":"val"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
 		t.Errorf("expected JSON content-type, got %q", ct)
@@ -256,13 +291,39 @@ func TestPing_Down(t *testing.T) {
 func TestMetrics(t *testing.T) {
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	w := httptest.NewRecorder()
-	Metrics()(w, req)
+	h, err := Metrics()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
 		t.Errorf("expected text/plain content-type, got %q", ct)
+	}
+}
+
+func TestArgCount_Errors(t *testing.T) {
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"Echo/TooMany", func() error { _, err := Echo("x"); return err }},
+		{"OK/TooMany", func() error { _, err := OK("a", "b"); return err }},
+		{"ERR/TooMany", func() error { _, err := ERR("a", "b", "c"); return err }},
+		{"Metrics/TooMany", func() error { _, err := Metrics("x"); return err }},
+		{"Redirect/TooFew", func() error { _, err := Redirect("301"); return err }},
+		{"Redirect/TooMany", func() error { _, err := Redirect("301", "/new", "extra"); return err }},
+		{"JSON/TooMany", func() error { _, err := JSON("a", "b"); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.call(); err == nil {
+				t.Errorf("expected error, got nil")
+			}
+		})
 	}
 }
 

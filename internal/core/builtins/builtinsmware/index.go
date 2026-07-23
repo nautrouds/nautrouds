@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/tempresp"
@@ -15,17 +16,16 @@ import (
 	"go.uber.org/zap"
 )
 
-type MiddlewareFactory func(args ...string) HandlerFunc
+type MiddlewareFactory func(args ...string) (HandlerFunc, error)
 type HandlerFunc = func(*tempresp.ResponseWriter, *http.Request, mmfg.Request)
-
-func InvalidMiddleware(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
-	w.Reply("Internal Server Error", http.StatusInternalServerError)
-}
 
 // --- Header Operations ---
 
-func SetHeader(args ...string) HandlerFunc {
-	key, val := parseTwoArgs(args)
+func SetHeader(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
+		return nil, fmt.Errorf("$SetHeader: %w", err)
+	}
+	key, val := args[0], args[1]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		if mr != nil {
 			if err := mr.UpdateHeader(key, val); err != nil {
@@ -34,11 +34,14 @@ func SetHeader(args ...string) HandlerFunc {
 		} else {
 			r.Header.Set(key, val)
 		}
-	}
+	}, nil
 }
 
-func DelHeader(args ...string) HandlerFunc {
-	key, _ := parseTwoArgs(args)
+func DelHeader(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 1, 1); err != nil {
+		return nil, fmt.Errorf("$DelHeader: %w", err)
+	}
+	key := args[0]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		if mr != nil {
 			if err := mr.DeleteHeader(key); err != nil {
@@ -47,14 +50,17 @@ func DelHeader(args ...string) HandlerFunc {
 		} else {
 			r.Header.Del(key)
 		}
-	}
+	}, nil
 }
 
-func SetHost(args ...string) HandlerFunc {
-	host, _ := parseTwoArgs(args)
+func SetHost(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 1, 1); err != nil {
+		return nil, fmt.Errorf("$SetHost: %w", err)
+	}
+	host := args[0]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		r.Host = host
-	}
+	}, nil
 }
 
 // --- Path & Query Operations ---
@@ -80,8 +86,11 @@ func applyURL(u *url.URL, r *http.Request, mr mmfg.Request) error {
 	return nil
 }
 
-func PathTrimPrefix(args ...string) HandlerFunc {
-	prefix, _ := parseTwoArgs(args)
+func PathTrimPrefix(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 1, 1); err != nil {
+		return nil, fmt.Errorf("$PathTrimPrefix: %w", err)
+	}
+	prefix := args[0]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		u, err := getURL(r, mr)
 		if err != nil {
@@ -101,11 +110,14 @@ func PathTrimPrefix(args ...string) HandlerFunc {
 				return
 			}
 		}
-	}
+	}, nil
 }
 
-func RewritePath(args ...string) HandlerFunc {
-	old, new := parseTwoArgs(args)
+func RewritePath(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
+		return nil, fmt.Errorf("$RewritePath: %w", err)
+	}
+	old, new := args[0], args[1]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		u, err := getURL(r, mr)
 		if err != nil {
@@ -123,11 +135,14 @@ func RewritePath(args ...string) HandlerFunc {
 			replyMmfgError(w, "Failed to write request URL", err)
 			return
 		}
-	}
+	}, nil
 }
 
-func SetQuery(args ...string) HandlerFunc {
-	key, val := parseTwoArgs(args)
+func SetQuery(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
+		return nil, fmt.Errorf("$SetQuery: %w", err)
+	}
+	key, val := args[0], args[1]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		u, err := getURL(r, mr)
 		if err != nil {
@@ -141,7 +156,7 @@ func SetQuery(args ...string) HandlerFunc {
 			replyMmfgError(w, "Failed to write request URL", err)
 			return
 		}
-	}
+	}, nil
 }
 
 // --- Security & Auth ---
@@ -162,8 +177,11 @@ func parseBasicAuth(auth string) (username, password string, ok bool) {
 	return username, password, true
 }
 
-func BasicAuth(args ...string) HandlerFunc {
-	user, pass := parseTwoArgs(args)
+func BasicAuth(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
+		return nil, fmt.Errorf("$BasicAuth: %w", err)
+	}
+	user, pass := args[0], args[1]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		var u, p string
 		var ok bool
@@ -183,11 +201,14 @@ func BasicAuth(args ...string) HandlerFunc {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Nautrouds Protected"`)
 			w.WriteHeader(http.StatusUnauthorized)
 		}
-	}
+	}, nil
 }
 
-func RequireHeader(args ...string) HandlerFunc {
-	key, val := parseTwoArgs(args)
+func RequireHeader(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
+		return nil, fmt.Errorf("$RequireHeader: %w", err)
+	}
+	key, val := args[0], args[1]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		var got string
 		if mr != nil {
@@ -204,25 +225,24 @@ func RequireHeader(args ...string) HandlerFunc {
 		if subtle.ConstantTimeCompare([]byte(got), []byte(val)) != 1 {
 			w.Reply("Forbidden", http.StatusForbidden)
 		}
-	}
+	}, nil
 }
 
-func IPAllow(args ...string) HandlerFunc {
+func IPAllow(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 1, 2); err != nil {
+		return nil, fmt.Errorf("$IPAllow: %w", err)
+	}
+
 	var headerKey, cidr string
-	switch len(args) {
-	case 1:
-		cidr = args[0]
-	case 2:
+	if len(args) == 2 {
 		headerKey, cidr = args[0], args[1]
-	default:
-		logs.Out.Error("IPAllow error: expected 1 or 2 arguments")
-		return InvalidMiddleware
+	} else {
+		cidr = args[0]
 	}
 
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
-		logs.Out.Error("IPAllow error: invalid CIDR", zap.Error(err))
-		return InvalidMiddleware
+		return nil, fmt.Errorf("$IPAllow: invalid CIDR %q: %w", cidr, err)
 	}
 
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
@@ -246,16 +266,19 @@ func IPAllow(args ...string) HandlerFunc {
 		if !ipNet.Contains(ip) {
 			w.Reply("Forbidden", http.StatusForbidden)
 		}
-	}
+	}, nil
 }
 
 // --- Debugging & Utilities ---
 
-func Log(args ...string) HandlerFunc {
-	prefix, _ := parseTwoArgs(args)
+func Log(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 1, 1); err != nil {
+		return nil, fmt.Errorf("$Log: %w", err)
+	}
+	prefix := args[0]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		fmt.Printf("[%s] %s %s from %s\n", prefix, r.Method, r.URL.Path, r.RemoteAddr)
-	}
+	}, nil
 }
 
 // --- Registry ---
@@ -298,15 +321,4 @@ func IsValid(expr string) (bool, string) {
 	}
 
 	return true, ""
-}
-
-func parseTwoArgs(args []string) (string, string) {
-	switch len(args) {
-	case 1:
-		return args[0], ""
-	case 2:
-		return args[0], args[1]
-	default:
-		return "", ""
-	}
 }
