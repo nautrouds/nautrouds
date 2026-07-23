@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/tempresp"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type proxyErrorKey struct{}
@@ -46,30 +49,55 @@ type Forwarder struct {
 	onFailure    chan FailureForwarder
 	wg           sync.WaitGroup
 	isFailed     atomic.Bool
+	useHTTP2     atomic.Bool
+	transport    *dualTransport
 }
 
 func New(serviceName, nodePath string, onFailure chan FailureForwarder) *Forwarder {
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", nodePath)
-		},
+	dialContext := func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", nodePath)
+	}
+
+	h1Transport := &http.Transport{
+		DialContext:         dialContext,
 		MaxIdleConnsPerHost: 100,
 		DisableCompression:  true,
 		DisableKeepAlives:   false,
+	}
+
+	h2Protocols := new(http.Protocols)
+	h2Protocols.SetUnencryptedHTTP2(true)
+
+	h2Transport := &http.Transport{
+		DialContext:         dialContext,
+		MaxIdleConnsPerHost: 1,
+		DisableCompression:  true,
+		DisableKeepAlives:   false,
+		Protocols:           h2Protocols,
 	}
 
 	f := &Forwarder{
 		serviceName: serviceName,
 		socketPath:  nodePath,
 		onFailure:   onFailure,
-		client: &http.Client{
-			Transport: transport,
-			Timeout:   1 * time.Second,
-		},
+	}
+	f.transport = &dualTransport{useHTTP2: &f.useHTTP2, h1: h1Transport, h2: h2Transport}
+	f.client = &http.Client{
+		Transport: f.transport,
+		Timeout:   1 * time.Second,
 	}
 
-	f.reverseProxy = createReverseProxy(serviceName, nodePath, transport, onFailure, &f.isFailed)
+	f.reverseProxy = createReverseProxy(serviceName, nodePath, f.transport, onFailure, &f.isFailed)
 	go probeSocket(nodePath, onFailure, &f.isFailed)
+	go func() {
+		useH2, reason := probeHTTP2(nodePath)
+		f.useHTTP2.Store(useH2)
+		logs.Out.Info("HTTP/2 probe completed",
+			zap.String("service", serviceName),
+			zap.String("socketPath", nodePath),
+			zap.Bool("http2", useH2),
+			zap.String("reason", reason))
+	}()
 
 	return f
 }
@@ -232,9 +260,15 @@ func (f *Forwarder) TryReconnect() error {
 	}
 	conn.Close()
 
-	if t, ok := f.client.Transport.(*http.Transport); ok {
-		t.CloseIdleConnections()
-	}
+	f.transport.CloseIdleConnections()
+
+	useH2, reason := probeHTTP2(f.socketPath)
+	f.useHTTP2.Store(useH2)
+	logs.Out.Info("HTTP/2 probe re-run on reconnect",
+		zap.String("service", f.serviceName),
+		zap.String("socketPath", f.socketPath),
+		zap.Bool("http2", useH2),
+		zap.String("reason", reason))
 
 	f.isFailed.Store(false)
 	return nil
