@@ -15,6 +15,7 @@ import (
 
 func Parse(r io.Reader) (*rtree.RouteTree, error) {
 	var rawRules []rtree.RawNode
+	var ruleLines []int
 	var currentRule *rtree.RawNode
 	var skippingUntilBlank bool
 
@@ -43,7 +44,7 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 			continue
 		}
 
-		isIndent := strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")
+		isIndent := strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "\t")
 
 		if !isIndent {
 			fields, err := shlex.Split(trimmed)
@@ -66,6 +67,10 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 				return nil, fmt.Errorf("line %d: invalid rule fields (expected 1-3, got %d): %s", lineCount, len(fields), trimmed)
 			}
 
+			if ok, bad := rtree.ValidateMethods(rule.Methods); !ok {
+				return nil, fmt.Errorf("line %d: unknown HTTP method: %s", lineCount, bad)
+			}
+
 			if strings.HasPrefix(rule.Service, "$") {
 				valid, name := virtualservices.IsValid(rule.Service)
 				if !valid {
@@ -77,6 +82,7 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 			}
 
 			rawRules = append(rawRules, rule)
+			ruleLines = append(ruleLines, lineCount)
 			currentRule = &rawRules[len(rawRules)-1]
 
 		} else {
@@ -105,6 +111,11 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 				}
 				fallthrough
 			default:
+				if !strings.HasPrefix(trimmed, "$") {
+					if err := validateExternalMiddleware(trimmed); err != nil {
+						return nil, fmt.Errorf("line %d: %s", lineCount, err)
+					}
+				}
 				currentRule.Middlewares = append(currentRule.Middlewares, trimmed)
 			}
 		}
@@ -115,8 +126,12 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 	}
 
 	var rawNodes []*rtree.RawNode
-	for _, rule := range rawRules {
-		for _, url := range expandField(rule.URL) {
+	for i, rule := range rawRules {
+		urls, err := expandField(rule.URL)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %s", ruleLines[i], err)
+		}
+		for _, url := range urls {
 			rawNodes = append(rawNodes, &rtree.RawNode{
 				Methods:     rule.Methods,
 				URL:         url,

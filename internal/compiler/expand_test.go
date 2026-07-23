@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExpandField(t *testing.T) {
@@ -46,8 +47,64 @@ func TestExpandField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res := expandField(tt.input)
+			res, err := expandField(tt.input)
+			require.NoError(t, err)
 			assert.ElementsMatch(t, tt.expected, res)
+		})
+	}
+}
+
+func TestExpandField_Escaping(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "Escaped Brackets Literal",
+			input:    `\[literal\].io/api`,
+			expected: []string{"[literal].io/api"},
+		},
+		{
+			name:     "Escaped Pipe Literal",
+			input:    `[a\|b]`,
+			expected: []string{"a|b"},
+		},
+		{
+			name:     "Mixed Real And Escaped Group",
+			input:    `[a|\[b\]]`,
+			expected: []string{"a", "[b]"},
+		},
+		{
+			name:     "Escaped Backslash",
+			input:    `foo\\bar`,
+			expected: []string{`foo\bar`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := expandField(tt.input)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.expected, res)
+		})
+	}
+}
+
+func TestExpandField_UnclosedBracket(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"Simple Unclosed", "foo[bar"},
+		{"Nested Unclosed", "www.[a|b[1|2].com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := expandField(tt.input)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "unclosed")
 		})
 	}
 }

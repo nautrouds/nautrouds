@@ -546,38 +546,53 @@ func (t *RouteTree) flattenNode(e *Edge, pw *Edge, pwIdx int32) Edge {
 func parseMethods(methods string) uint16 {
 	var res uint16
 	for m := range strings.SplitSeq(strings.ToLower(methods), ",") {
-		res |= matchMethodToken(strings.TrimSpace(m))
+		token := strings.TrimSpace(m)
+		mask, ok := lookupMethodToken(token)
+		if !ok && token != "" {
+			log.Printf("[rtree] Warning: unknown HTTP method token ignored: %s", token)
+		}
+		res |= mask
 	}
 	return res
 }
 
-func matchMethodToken(m string) uint16 {
+func ValidateMethods(methods string) (bool, string) {
+	for m := range strings.SplitSeq(methods, ",") {
+		token := strings.TrimSpace(m)
+		if token == "" {
+			continue
+		}
+		if _, ok := lookupMethodToken(strings.ToLower(token)); !ok {
+			return false, token
+		}
+	}
+	return true, ""
+}
+
+func lookupMethodToken(m string) (uint16, bool) {
 	switch m {
 	case "g", "get":
-		return MethodGet
+		return MethodGet, true
 	case "p", "po", "post":
-		return MethodPost
+		return MethodPost, true
 	case "pu", "put":
-		return MethodPut
+		return MethodPut, true
 	case "d", "del", "delete":
-		return MethodDelete
+		return MethodDelete, true
 	case "head":
-		return MethodHead
+		return MethodHead, true
 	case "connect":
-		return MethodConnect
+		return MethodConnect, true
 	case "options":
-		return MethodOptions
+		return MethodOptions, true
 	case "trace":
-		return MethodTrace
+		return MethodTrace, true
 	case "patch":
-		return MethodPatch
+		return MethodPatch, true
 	case "*", "any":
-		return MethodAny
+		return MethodAny, true
 	default:
-		if m != "" {
-			log.Printf("[rtree] Warning: unknown HTTP method token ignored: %s", m)
-		}
-		return 0
+		return 0, false
 	}
 }
 
