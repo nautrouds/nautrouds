@@ -275,9 +275,9 @@ func Log(args ...string) (HandlerFunc, error) {
 	if _, err := builtins.CheckArgCount(args, 1, 1); err != nil {
 		return nil, fmt.Errorf("$Log: %w", err)
 	}
-	prefix := args[0]
+	line := args[0]
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
-		fmt.Printf("[%s] %s %s from %s\n", prefix, r.Method, r.URL.Path, r.RemoteAddr)
+		fmt.Println(line)
 	}, nil
 }
 

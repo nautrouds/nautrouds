@@ -1,9 +1,11 @@
 package builtinsmware_test
 
 import (
+	"bufio"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"testing"
 
 	"nautrouds/internal/core/builtins/builtinsmware"
@@ -345,6 +347,26 @@ func TestLog_DoesNotPanic(t *testing.T) {
 	req := httptest.NewRequest("GET", "/path", nil)
 	req.RemoteAddr = "127.0.0.1:9999"
 	assert.NotPanics(t, func() { fn(w, req, nil) })
+}
+
+func TestLog_PrintsLineAsIs(t *testing.T) {
+	fn, err := builtinsmware.Log("hit GET /path from 127.0.0.1")
+	require.NoError(t, err)
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/path", nil)
+	req.RemoteAddr = "127.0.0.1:9999"
+
+	r, wPipe, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = wPipe
+	fn(w, req, nil)
+	wPipe.Close()
+	os.Stdout = origStdout
+
+	scanner := bufio.NewScanner(r)
+	require.True(t, scanner.Scan())
+	assert.Equal(t, "hit GET /path from 127.0.0.1", scanner.Text())
 }
 
 func TestArgCount_Errors(t *testing.T) {
