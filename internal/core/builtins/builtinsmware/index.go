@@ -181,7 +181,7 @@ func BasicAuth(args ...string) (HandlerFunc, error) {
 	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
 		return nil, fmt.Errorf("$BasicAuth: %w", err)
 	}
-	user, pass := args[0], args[1]
+	user, pass := []byte(args[0]), []byte(args[1])
 	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
 		var u, p string
 		var ok bool
@@ -197,7 +197,7 @@ func BasicAuth(args ...string) (HandlerFunc, error) {
 			u, p, ok = r.BasicAuth()
 		}
 
-		if !ok || u != user || p != pass {
+		if !ok || subtle.ConstantTimeCompare([]byte(u), user) != 1 || subtle.ConstantTimeCompare([]byte(p), pass) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Nautrouds Protected"`)
 			w.WriteHeader(http.StatusUnauthorized)
 		}
