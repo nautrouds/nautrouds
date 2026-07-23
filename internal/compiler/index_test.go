@@ -119,6 +119,29 @@ GET example.com/api svc
 	assert.ElementsMatch(t, []string{"$mmfg(mmfg-service/echo)"}, mws)
 }
 
+func TestParse_ValidMmfg_QuotedNodeName(t *testing.T) {
+	script := `
+GET example.com/api svc
+    $mmfg("mmfg-service/my node (echo)")
+`
+	tree, err := compiler.ParseString(script)
+	require.NoError(t, err)
+	require.NotNil(t, tree)
+
+	url := []byte("example.com/api")
+	rtree.ReverseHost(url)
+	node, exists := tree.Search(url)
+	require.True(t, exists)
+
+	mwCount := tree.ActionMetadata[node.ActionIndex+1]
+	var mws []string
+	for i := range mwCount {
+		mwMetaIndex := tree.ActionMetadata[node.ActionIndex+2+i]
+		mws = append(mws, tree.GetActionName(tree.ActionMetadata[mwMetaIndex]))
+	}
+	assert.ElementsMatch(t, []string{`$mmfg("mmfg-service/my node (echo)")`}, mws)
+}
+
 func TestParse_InvalidMmfg(t *testing.T) {
 	cases := []struct {
 		name string
@@ -128,6 +151,7 @@ func TestParse_InvalidMmfg(t *testing.T) {
 		{"EmptyNodeName", "$mmfg()"},
 		{"UnterminatedNodeName", "$mmfg(foo"},
 		{"NoParens", "$mmfg"},
+		{"TooManyArgs", "$mmfg(foo, bar)"},
 	}
 
 	for _, c := range cases {

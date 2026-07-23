@@ -42,7 +42,7 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 
 		s.tempResp.Setup(s.w)
 
-		if strings.HasPrefix(mwExpr, "$mmfg(") {
+		if strings.HasPrefix(mwExpr, mmfg.DirectivePrefix) {
 			if mr == nil {
 
 				if !mmfg.IsAvailable {
@@ -62,7 +62,13 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 				mr = req
 			}
 
-			node := mwExpr[6 : len(mwExpr)-1]
+			node, err := mmfg.ParseNode(mwExpr)
+			if err != nil {
+				logs.Out.Error("mmfg Invalid Directive", zap.String("expr", mwExpr))
+				http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+				return true
+			}
+
 			selfRespond, err := mr.Next(node)
 			if err != nil {
 				logs.Out.Error("mmfg Next Error", zap.String("node", node), zap.Error(err))
