@@ -31,20 +31,20 @@ func main() {
 	defer logs.Sync()
 
 	// Create entrypoint directory if it doesn't exist
-	if err := os.MkdirAll(opts.EntrypointDir, 0755); err != nil {
+	if err := os.MkdirAll(opts.EntrypointDir, opts.EntrypointDirMode); err != nil {
 		logs.Out.Error("Failed to create entrypoint directory", zap.Error(err))
 		return
 	}
 	// Ensure permissions if directory already existed
-	os.Chmod(opts.EntrypointDir, 0755)
+	os.Chmod(opts.EntrypointDir, opts.EntrypointDirMode)
 
 	// Create services directory if it doesn't exist
-	// 01777: Sticky bit ensures only the owner can delete their own socket
-	if err := os.MkdirAll(opts.ServicesDir, 01777); err != nil {
+	// Default (01777): sticky bit ensures only the owner can delete their own socket
+	if err := os.MkdirAll(opts.ServicesDir, opts.ServicesDirMode); err != nil {
 		logs.Out.Error("Failed to create services directory", zap.Error(err))
 		return
 	}
-	os.Chmod(opts.ServicesDir, 01777)
+	os.Chmod(opts.ServicesDir, opts.ServicesDirMode)
 
 	err := lifemanaged.Run(func(lc *lifecycle.LifecycleManager) error {
 		return run(lc, opts)
@@ -107,7 +107,7 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 		if opts.MetricsPath != "" {
 			collectorPath = filepath.Join(opts.ServicesDir, opts.MetricsPath)
 		}
-		collector := metrics.NewCollector(collectorPath, metrics.Global)
+		collector := metrics.NewCollector(collectorPath, opts.MetricsSockMode, metrics.Global)
 		if err := collector.Start(); err != nil {
 			return fmt.Errorf("metrics collector startup failed: %w", err)
 		}

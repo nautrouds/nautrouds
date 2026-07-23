@@ -47,7 +47,7 @@ func TestCollector_StartStop(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -66,7 +66,7 @@ func TestCollector_StartRemovesStaleSocket(t *testing.T) {
 	// Create a stale file at the socket path before starting
 	os.WriteFile(sockPath, []byte("stale"), 0644)
 
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start should remove stale file and succeed: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestCollector_ValidGaugeFrame(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestCollector_ValidCounterFrame(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestCollector_ValidHistogramFrame(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestCollector_InvalidMagicByte(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestCollector_CRCMismatch(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestCollector_FrameTooLarge(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, metrics.Global)
+	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}

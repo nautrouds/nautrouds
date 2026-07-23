@@ -24,13 +24,15 @@ const (
 // Collector handles the UDS server for receiving metrics
 type Collector struct {
 	socketPath string
+	socketMode os.FileMode
 	listener   net.Listener
 	registry   *Registry
 }
 
-func NewCollector(socketPath string, r *Registry) *Collector {
+func NewCollector(socketPath string, socketMode os.FileMode, r *Registry) *Collector {
 	return &Collector{
 		socketPath: socketPath,
+		socketMode: socketMode,
 		registry:   r,
 	}
 }
@@ -45,7 +47,7 @@ func (c *Collector) Start() error {
 		return err
 	}
 
-	os.Chmod(c.socketPath, 0666)
+	os.Chmod(c.socketPath, c.socketMode)
 
 	c.listener = l
 	go c.acceptLoop()
