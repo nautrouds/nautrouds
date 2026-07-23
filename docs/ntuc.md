@@ -14,8 +14,12 @@ The `nautrouds-core` is the runtime engine. It manages the proxy, service regist
 | `--config` | `NAUTROUDS_CONFIG` | `nautrouds.ntu` | Path to compiled `.ntu` or source `Ntufile`. |
 | `--ntuc` | `NAUTROUDS_NTUC` | `ntuc` | Path to the `ntuc` compiler executable. |
 | `--services` | `NAUTROUDS_SERVICES_DIR` | `/var/run/nautrouds/services` | Directory to watch for backend UDS sockets. |
+| `--services-dir-mode` | `NAUTROUDS_SERVICES_DIR_MODE` | `1777` | Permission mode (octal) applied to the services directory. |
 | `--entrypoint-dir` | `NAUTROUDS_ENTRYPOINT_DIR` | `/var/run/nautrouds/entrypoints` | Directory to create entrypoint UDS sockets. |
+| `--entrypoint-dir-mode` | `NAUTROUDS_ENTRYPOINT_DIR_MODE` | `0755` | Permission mode (octal) applied to the entrypoint directory. |
 | `--entrypoint-count` | `NAUTROUDS_ENTRYPOINT_COUNT` | `1` | Number of entrypoint sockets to create. |
+| `--metrics-socket` | `NAUTROUDS_METRICS_SOCKET` | `metrics.sock` | Metrics collector socket path, relative to `--services`. Set to `-` to disable. |
+| `--metrics-socket-mode` | `NAUTROUDS_METRICS_SOCKET_MODE` | `0666` | Permission mode (octal) applied to the metrics collector socket. |
 
 ### Hot-Reloading
 Nautrouds automatically tracks changes to your configuration. 
