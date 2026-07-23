@@ -108,10 +108,54 @@ Nautrouds uses a strict permission model for Unix Domain Sockets (UDS) to ensure
 | `/var/run/nautrouds/services` | Where backend services place their `.sock` files. |
 | `/var/run/nautrouds/entrypoints` | Where Nautrouds creates its entrypoint sockets. |
 
-### Security Model
+### Security Considerations
 
-1.  **Privilege Dropping**: The Nautrouds Docker image starts as `root` to initialize the environment and then immediately drops privileges to a non-root `nautrouds` user for execution.
-2.  **Automated Environment Management**: Nautrouds automatically configures directory isolation and access controls to ensure secure communication between services.
+Nautrouds is a UDS-only internal proxy: it assumes every process able to reach its sockets already sits inside your trust boundary. It does not provide TLS/mTLS, and several built-ins are deliberately permissive so operators can shape the trust model to their environment. The points below are deployment decisions that directly affect security — make them consciously rather than leaving them at defaults.
+
+#### 1. `ServicesDir` permissions
+
+`ServicesDir` (default `/var/run/nautrouds/services`) is created with mode `01777` (world-writable, sticky bit) by default so any backend process can create its own `<service>/<node>.sock` without sharing a UID/GID with the core process. Configurable via `--services-dir-mode` / `NAUTROUDS_SERVICES_DIR_MODE` (in the Docker image, the same env var also drives `docker/entrypoint.sh`'s `chown`/`chmod`/ACL setup).
+
+- **Risk**: the sticky bit only stops other users from *deleting* files they don't own — it does **not** stop them from creating a new service directory or planting a node under an existing one, which would let that process intercept live traffic for that service.
+- **Guidance**: fine on a single-tenant host/container. On a shared/multi-tenant host, run backend services under a dedicated group and narrow this mode (e.g. `0770`) instead of relying on `01777`.
+
+#### 2. `$IPAllow` header mode has no built-in trust boundary
+
+`$IPAllow(headerKey, cidr)` trusts whatever value arrives in `headerKey`.
+
+- **Risk**: if Nautrouds is the first hop terminating client connections, the client controls that header directly and can bypass the CIDR check.
+- **Guidance**: only use the header form behind a trusted upstream guaranteed to overwrite (not merely forward) that header; otherwise use the single-argument, `RemoteAddr`-based form.
+
+#### 3. Metrics collector socket
+
+When enabled, the metrics socket (default `metrics.sock`) is `chmod`'d to `0666` by default so any local backend can push metrics without permission friction. Configurable via `--metrics-socket-mode` / `NAUTROUDS_METRICS_SOCKET_MODE`.
+
+- **Risk**: combined with point 1, any local process able to reach the socket can submit forged metrics frames, polluting counters/gauges.
+- **Guidance**: on shared hosts, narrow this mode to the group of processes you trust to report metrics, and treat metrics as untrusted input when alerting.
+
+#### 4. Dynamic middleware / service-name interpolation
+
+Route and middleware directives can be templated from request data (`{header.X}`, `{query.X}`, ...), and the substitution applies to the whole directive, not just string arguments.
+
+- **Risk**: a client can effectively choose which service or built-in runs if a directive name/target is templated from unvalidated request data.
+- **Guidance**: prefer interpolating only argument *values* (e.g. a comparison target), not directive names or service names, unless every value the tag can take has been validated.
+
+#### 5. `X-Forwarded-For`
+
+Backend requests are proxied with Go's `httputil.ReverseProxy`, which appends to (rather than replaces) any pre-existing `X-Forwarded-For` header.
+
+- **Risk**: a backend that trusts the header verbatim can be fed a spoofed origin IP by the client.
+- **Guidance**: backends should only trust the last hop's contribution (the one Nautrouds itself appended); prefer `RemoteAddr`-based `$IPAllow` at the edge for origin-IP enforcement.
+
+#### 6. `-token` is not an auth mechanism
+
+It only namespaces entrypoint socket filenames so multiple instances sharing an `EntrypointDir` don't collide. Access control for entrypoint sockets is entirely a function of filesystem permissions on `EntrypointDir`.
+
+#### 7. Privilege dropping (Docker)
+
+The Nautrouds Docker image starts as `root` to initialize the environment and then immediately drops privileges to a non-root `nautrouds` user for execution.
+
+- **UID/GID**: the `nautrouds` user/group's UID/GID default to whatever Alpine assigns at build time; set `NAUTROUDS_UID` / `NAUTROUDS_GID` to remap them at container start (e.g. to match a bind-mounted host directory's ownership) — `docker/entrypoint.sh` recreates the user/group with the requested IDs before dropping privileges.
 
 ### Backend Implementation Advice
 
