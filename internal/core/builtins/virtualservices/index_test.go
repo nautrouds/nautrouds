@@ -181,6 +181,21 @@ func TestRedirect_Valid(t *testing.T) {
 	}
 }
 
+func TestRedirect_InvalidCode(t *testing.T) {
+	if _, err := Redirect("abc", "/new"); err == nil {
+		t.Error("expected error for non-numeric status code")
+	}
+}
+
+func TestRedirect_CodeOutOfRange(t *testing.T) {
+	if _, err := Redirect("0", "/new"); err == nil {
+		t.Error("expected error for status code out of range")
+	}
+	if _, err := Redirect("1000", "/new"); err == nil {
+		t.Error("expected error for status code out of range")
+	}
+}
+
 func TestDiscovery(t *testing.T) {
 	state := map[string][]string{
 		"svc-a": {"/tmp/a.sock"},

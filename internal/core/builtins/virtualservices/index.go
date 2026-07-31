@@ -95,7 +95,13 @@ func Redirect(args ...string) (http.HandlerFunc, error) {
 	if _, err := builtins.CheckArgCount(args, 2, 2); err != nil {
 		return nil, fmt.Errorf("$redirect: %w", err)
 	}
-	code, _ := strconv.Atoi(args[0])
+	code, err := strconv.Atoi(args[0])
+	if err != nil {
+		return nil, fmt.Errorf("$redirect: invalid status code %q: %w", args[0], err)
+	}
+	if code < 100 || code > 999 {
+		return nil, fmt.Errorf("$redirect: status code %d out of range [100, 999]", code)
+	}
 	target := args[1]
 	return func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, code)
