@@ -182,9 +182,9 @@ func (r *Registry) GetState() map[string][]string {
 
 func (r *Registry) GetForwarder(serviceName string) (*forwarder.Forwarder, error) {
 	r.mu.RLock()
-	ss, exists := r.services[serviceName]
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
+	ss, exists := r.services[serviceName]
 	if !exists || len(ss.nodes) == 0 {
 		return nil, os.ErrNotExist
 	}
@@ -192,10 +192,7 @@ func (r *Registry) GetForwarder(serviceName string) (*forwarder.Forwarder, error
 	idx := ss.index.Add(1) % uint32(len(ss.nodes))
 	nodePath := ss.nodes[idx]
 
-	r.mu.RLock()
 	ctx, ok := r.nodeMap[nodePath]
-	r.mu.RUnlock()
-
 	if !ok {
 		return nil, os.ErrNotExist
 	}
