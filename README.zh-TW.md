@@ -139,18 +139,11 @@ Nautrouds 是純 UDS（Unix Domain Socket）內部 proxy：它假設任何能連
 - **風險**：若指令名稱/目標是從未經驗證的請求資料樣板化出來的，客戶端等於能自行決定要路由到哪個服務、或執行哪個 built-in。
 - **建議**：除非已驗證過該 tag 可能取到的所有值，否則應只在參數**值**（例如比對目標）中使用 interpolation，而不是指令名稱或 service name。
 
-#### 5. `X-Forwarded-For`
-
-後端請求透過 Go 的 `httputil.ReverseProxy` 轉發，其預設行為是對既有的 `X-Forwarded-For` 採取附加而非取代。
-
-- **風險**：若 backend 直接信任整個 header，客戶端可以偽造來源 IP。
-- **建議**：Backend 應該只信任該 header 最後一段（Nautrouds 自己附加上去的部分）；若需要精確的來源 IP 控管，優先使用邊界層、以 `RemoteAddr` 為基礎的 `$IPAllow`。
-
-#### 6. `-token` 不是驗證機制
+#### 5. `-token` 不是驗證機制
 
 它只是替 entrypoint socket 檔名加上命名空間，讓多個共用同一個 `EntrypointDir` 的實例不會互相衝突。entrypoint socket 的存取控制完全取決於 `EntrypointDir` 的檔案系統權限。
 
-#### 7. 權限降級 (Privilege Dropping，Docker)
+#### 6. 權限降級 (Privilege Dropping，Docker)
 
 Nautrouds Docker 鏡像以 `root` 身分啟動以初始化環境權限，然後立即降權至非 root 的 `nautrouds` 使用者執行。
 
