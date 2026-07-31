@@ -30,7 +30,10 @@ git clone https://github.com/your-repo/nautrouds.git
 cd nautrouds
 
 # 編譯核心執行檔
-go build -o bin/nautrouds-core ./cmd/nautrouds-core
+go build -o bin/nautrouds-core ./cmd/core
+
+# 編譯 ntuc 編譯器
+go build -o bin/ntuc ./cmd/ntuc
 ```
 
 ### 使用方式
@@ -58,7 +61,7 @@ Nautrouds 使用 `Ntufile` 作為設定檔，經由 `ntuc` 編譯器轉換為 bi
 
 ```text
 # 基礎路由規則
-GET /api/v1/users $user-service
+GET /api/v1/users user-service
     $SetHeader(X-Source, Nautrouds)
     $BasicAuth(admin, secret)
 

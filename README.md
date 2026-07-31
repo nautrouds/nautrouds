@@ -30,7 +30,10 @@ git clone https://github.com/your-repo/nautrouds.git
 cd nautrouds
 
 # Build the core binary
-go build -o bin/nautrouds-core ./cmd/nautrouds-core
+go build -o bin/nautrouds-core ./cmd/core
+
+# Build the ntuc compiler
+go build -o bin/ntuc ./cmd/ntuc
 ```
 
 ### Usage
@@ -58,7 +61,7 @@ Use the `ntuc` tool to compile your `Ntufile` into a binary format readable by t
 
 ```text
 # Basic routing rules
-GET /api/v1/users $user-service
+GET /api/v1/users user-service
     $SetHeader(X-Source, Nautrouds)
     $BasicAuth(admin, secret)
 
