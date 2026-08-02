@@ -111,6 +111,7 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 	target, _ := url.Parse("http://unix-socket")
 	rp := httputil.NewSingleHostReverseProxy(target)
 	rp.Transport = transport
+	rp.BufferPool = sharedReverseProxyBufferPool
 
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		var opErr *net.OpError
