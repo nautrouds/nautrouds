@@ -21,6 +21,7 @@ import (
 )
 
 type proxyErrorKey struct{}
+type upstreamStartKey struct{}
 
 var (
 	ErrNodeUnavailable   = errors.New("Node Unavailable")
@@ -127,19 +128,17 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 		}
 	}
 
-	// Track upstream duration
+	// Track upstream duration via context instead of a wire header, avoiding a
+	// time.Format/time.Parse round-trip and an extra header sent to the backend.
 	originalDirector := rp.Director
 	rp.Director = func(req *http.Request) {
 		originalDirector(req)
-		req.Header.Set("X-Nautrouds-Start-Time", time.Now().Format(time.RFC3339Nano))
+		*req = *req.WithContext(context.WithValue(req.Context(), upstreamStartKey{}, time.Now()))
 	}
 
 	rp.ModifyResponse = func(resp *http.Response) error {
-		if startStr := resp.Request.Header.Get("X-Nautrouds-Start-Time"); startStr != "" {
-			if start, err := time.Parse(time.RFC3339Nano, startStr); err == nil {
-				duration := time.Since(start).Seconds()
-				metrics.Global.UpstreamDuration.WithLabelValues(serviceName, nodePath).Observe(duration)
-			}
+		if start, ok := resp.Request.Context().Value(upstreamStartKey{}).(time.Time); ok {
+			metrics.Global.UpstreamDuration.WithLabelValues(serviceName, nodePath).Observe(time.Since(start).Seconds())
 		}
 		return nil
 	}

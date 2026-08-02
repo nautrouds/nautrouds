@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/mmfg"
@@ -14,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -94,7 +94,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if s.node.Tags&tags.NoMetricsTag == 0 {
 		defer func() {
-			statusStr := fmt.Sprintf("%d", trackedWriter.status)
+			statusStr := strconv.Itoa(trackedWriter.status)
 			metrics.Global.HTTPRequestsTotal.WithLabelValues(s.finalServiceName, statusStr, r.Method).Inc()
 			metrics.Global.ResponseBytesTotal.WithLabelValues(s.finalServiceName).Add(float64(trackedWriter.size))
 

@@ -20,6 +20,7 @@ import (
 
 	"github.com/lucap9056/go-lifecycle/lifecycle"
 	"github.com/lucap9056/go-lifecycle/lifemanaged"
+	"go.uber.org/automaxprocs/maxprocs"
 	"go.uber.org/zap"
 )
 
@@ -29,6 +30,13 @@ func main() {
 
 	logs.InitLogger(opts.LogLevel)
 	defer logs.Sync()
+
+	// Without this, GOMAXPROCS defaults to the host's CPU count instead of the
+	// container's cgroup quota, causing the scheduler to oversubscribe and get
+	// throttled under CPU limits (manifests as erratic tail latency).
+	if _, err := maxprocs.Set(maxprocs.Logger(logs.Out.Sugar().Infof)); err != nil {
+		logs.Out.Warn("Failed to adjust GOMAXPROCS for cgroup CPU quota", zap.Error(err))
+	}
 
 	// Create entrypoint directory if it doesn't exist
 	if err := os.MkdirAll(opts.EntrypointDir, opts.EntrypointDirMode); err != nil {
