@@ -102,7 +102,7 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 		return fmt.Errorf("failed to perform initial route config load: %w", err)
 	}
 
-	w, err := watcher.NewWatcher(opts.ServicesDir, reg, mmfgHub)
+	w, err := watcher.NewWatcher(opts.ServicesDir, reg, mmfgHub, registry.NewStrategyHandler(reg))
 	if err != nil {
 		return fmt.Errorf("node watcher initialization failed: %w", err)
 	}

@@ -266,7 +266,8 @@ func (r *Registry) ApplyFullScan(baseDir string, byService map[string]map[string
 			if ss, exists := r.services[svcName]; exists {
 				ss.replace(healthyNodes)
 			} else {
-				r.services[svcName] = newServiceSet(healthyNodes, StrategyRoundRobin)
+				strategy := readStrategyAtCreation(baseDir, svcName)
+				r.services[svcName] = newServiceSet(healthyNodes, strategy)
 			}
 		} else {
 			delete(r.services, svcName)
@@ -333,7 +334,8 @@ func (r *Registry) ApplyServiceScan(baseDir string, serviceName string, discover
 		if ss, exists := r.services[serviceName]; exists {
 			ss.replace(finalHealthyNodes)
 		} else {
-			r.services[serviceName] = newServiceSet(finalHealthyNodes, StrategyRoundRobin)
+			strategy := readStrategyAtCreation(baseDir, serviceName)
+			r.services[serviceName] = newServiceSet(finalHealthyNodes, strategy)
 		}
 	} else {
 		delete(r.services, serviceName)
@@ -433,6 +435,24 @@ func (r *Registry) promoteToHealthyUnsafe(serviceName, nodePath string) {
 	ss.add(nodePath)
 
 	metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(ss.nodes)))
+}
+
+func (r *Registry) setStrategy(serviceName string, s Strategy) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ss, ok := r.services[serviceName]; ok {
+		ss.strategy = s
+	}
+}
+
+func (r *Registry) serviceNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.services))
+	for name := range r.services {
+		names = append(names, name)
+	}
+	return names
 }
 
 func (r *Registry) removeFromUnhealthyUnsafe(serviceName, nodePath string) {
