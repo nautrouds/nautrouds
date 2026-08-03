@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,4 +162,219 @@ func TestForwarder_FailureReporting(t *testing.T) {
 			t.Fatal("timed out waiting for failure report")
 		}
 	})
+}
+
+func TestForwarder_Forward_InFlightTracksLifecycle(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "test.sock")
+
+	l, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	defer l.Close()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	server := &http.Server{
+		// New()'s async HTTP/2 probe hits this socket too; its preface parses as method PRI, so ignore non-GET.
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			close(started)
+			<-release
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	go server.Serve(l)
+	defer server.Shutdown(context.Background())
+
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, onFailure)
+
+	done := make(chan struct{})
+	go func() {
+		req := httptest.NewRequest("GET", "http://example.com/", nil)
+		w := httptest.NewRecorder()
+		f.Forward(w, req)
+		close(done)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for request to start")
+	}
+	assert.EqualValues(t, 1, f.InFlight())
+
+	close(release)
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for request to finish")
+	}
+	assert.EqualValues(t, 0, f.InFlight())
+}
+
+func TestForwarder_ForwardMiddleware_InFlightTracksLifecycle(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-mw-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "mw.sock")
+
+	l, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	defer l.Close()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			close(started)
+			<-release
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	}
+	go server.Serve(l)
+	defer server.Shutdown(context.Background())
+
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, onFailure)
+
+	done := make(chan struct{})
+	go func() {
+		req := httptest.NewRequest("GET", "http://example.com/", nil)
+		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+		defer tempresp.Pool.Put(w)
+		f.ForwardMiddleware(w, req, nil, "/", nil)
+		close(done)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for request to start")
+	}
+	assert.EqualValues(t, 1, f.InFlight())
+
+	close(release)
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for request to finish")
+	}
+	assert.EqualValues(t, 0, f.InFlight())
+}
+
+func TestForwarder_Forward_InFlightDecrementsOnError(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-err-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
+
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, onFailure)
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	w := httptest.NewRecorder()
+
+	err = f.Forward(w, req)
+	assert.Equal(t, ErrNodeUnavailable, err)
+	assert.EqualValues(t, 0, f.InFlight())
+}
+
+func TestForwarder_ForwardMiddleware_InFlightDecrementsOnError(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-mw-err-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
+
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, onFailure)
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+	defer tempresp.Pool.Put(w)
+
+	err = f.ForwardMiddleware(w, req, nil, "/", nil)
+	assert.Equal(t, ErrNodeUnavailable, err)
+	assert.EqualValues(t, 0, f.InFlight())
+}
+
+func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
+	const n = 5
+
+	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-concurrent-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "test.sock")
+
+	l, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	defer l.Close()
+
+	started := make(chan struct{}, n)
+	release := make(chan struct{})
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			started <- struct{}{}
+			<-release
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	go server.Serve(l)
+	defer server.Shutdown(context.Background())
+
+	onFailure := make(chan FailureForwarder, n)
+	f := New("test-service", socketPath, onFailure)
+
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			req := httptest.NewRequest("GET", "http://example.com/", nil)
+			w := httptest.NewRecorder()
+			f.Forward(w, req)
+		})
+	}
+
+	for range n {
+		select {
+		case <-started:
+		case <-time.After(1 * time.Second):
+			t.Fatal("timed out waiting for a request to start")
+		}
+	}
+	assert.EqualValues(t, n, f.InFlight())
+
+	close(release)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for all requests to finish")
+	}
+	assert.EqualValues(t, 0, f.InFlight())
 }

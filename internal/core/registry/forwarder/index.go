@@ -51,6 +51,7 @@ type Forwarder struct {
 	wg           sync.WaitGroup
 	isFailed     atomic.Bool
 	useHTTP2     atomic.Bool
+	inFlight     atomic.Int64
 	transport    *dualTransport
 }
 
@@ -107,6 +108,10 @@ func (f *Forwarder) Wait() {
 	f.wg.Wait()
 }
 
+func (f *Forwarder) InFlight() int64 {
+	return f.inFlight.Load()
+}
+
 func createReverseProxy(serviceName, nodePath string, transport http.RoundTripper, onFailure chan FailureForwarder, isFailed *atomic.Bool) *httputil.ReverseProxy {
 	target, _ := url.Parse("http://unix-socket")
 	rp := httputil.NewSingleHostReverseProxy(target)
@@ -159,6 +164,8 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 
 	f.wg.Add(1)
 	defer f.wg.Done()
+	f.inFlight.Add(1)
+	defer f.inFlight.Add(-1)
 
 	start := time.Now()
 	defer func() {
@@ -239,6 +246,8 @@ func (f *Forwarder) Forward(w http.ResponseWriter, r *http.Request) error {
 	}
 	f.wg.Add(1)
 	defer f.wg.Done()
+	f.inFlight.Add(1)
+	defer f.inFlight.Add(-1)
 
 	var proxyErr error
 	ctx := context.WithValue(r.Context(), proxyErrorKey{}, &proxyErr)
