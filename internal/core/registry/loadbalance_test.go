@@ -223,6 +223,193 @@ func TestGetForwarders_LeastInFlightStrategy(t *testing.T) {
 	assert.Same(t, loaded2.fwd, result[2])
 }
 
+// markerPath returns the path of the "<token>.strategy" marker file under tmpDir/svc.
+func markerPath(tmpDir, token string) string {
+	return filepath.Join(tmpDir, "svc", token+strategyFileSuffix)
+}
+
+// setUpSvc creates tmpDir/svc, an empty "<token>.strategy" marker for each token
+// given, and an alive node socket, returning the pieces callers need to drive scans.
+func setUpSvc(t *testing.T, tokens ...string) (tmpDir, socketPath string, node *blockingNode) {
+	t.Helper()
+	tmpDir = t.TempDir()
+	svcDir := filepath.Join(tmpDir, "svc")
+	require.NoError(t, os.MkdirAll(svcDir, 0755))
+
+	for _, token := range tokens {
+		require.NoError(t, os.WriteFile(markerPath(tmpDir, token), nil, 0644))
+	}
+
+	// Needs a live listener: a dangling socket path triggers async ECONNREFUSED
+	// removal (see orphan_integration_test.go), which would race the assertions below.
+	node = newBlockingNode(t, 0)
+	socketPath = node.path
+	return
+}
+
+func TestReadStrategy(t *testing.T) {
+	t.Run("NoMarker", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "svc"), 0755))
+		assert.Equal(t, StrategyRoundRobin, readStrategyAtCreation(tmpDir, "svc"))
+	})
+
+	t.Run("RoundRobinMarker", func(t *testing.T) {
+		tmpDir, _, node := setUpSvc(t, "round_robin")
+		defer node.unblock()
+		assert.Equal(t, StrategyRoundRobin, readStrategyAtCreation(tmpDir, "svc"))
+	})
+
+	t.Run("LeastInFlightMarker", func(t *testing.T) {
+		tmpDir, _, node := setUpSvc(t, "least_in_flight")
+		defer node.unblock()
+		assert.Equal(t, StrategyLeastInFlight, readStrategyAtCreation(tmpDir, "svc"))
+	})
+
+	t.Run("BothMarkersPriority", func(t *testing.T) {
+		tmpDir, _, node := setUpSvc(t, "round_robin", "least_in_flight")
+		defer node.unblock()
+		assert.Equal(t, StrategyLeastInFlight, readStrategyAtCreation(tmpDir, "svc"))
+	})
+
+	t.Run("StatErrorNotNotExist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		// "svc" is a file, not a directory, so stat-ing a candidate under it fails with ENOTDIR, not not-exist.
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc"), nil, 0644))
+		assert.Equal(t, StrategyRoundRobin, readStrategyAtCreation(tmpDir, "svc"))
+	})
+}
+
+func TestResolveMarkerStrategy(t *testing.T) {
+	t.Run("Empty", func(t *testing.T) {
+		assert.Equal(t, StrategyRoundRobin, resolveMarkerStrategy(nil, "svc"))
+	})
+
+	t.Run("UnknownToken", func(t *testing.T) {
+		assert.Equal(t, StrategyRoundRobin, resolveMarkerStrategy([]string{"/svc/bogus.strategy"}, "svc"))
+	})
+
+	t.Run("PriorityWhenBothPresent", func(t *testing.T) {
+		paths := []string{"/svc/round_robin.strategy", "/svc/least_in_flight.strategy"}
+		assert.Equal(t, StrategyLeastInFlight, resolveMarkerStrategy(paths, "svc"))
+	})
+}
+
+func TestApplyServiceScan_ReadsStrategyOnlyAtCreation(t *testing.T) {
+	tmpDir, socketPath, node := setUpSvc(t, "least_in_flight")
+	defer node.unblock()
+
+	reg, err := NewRegistry()
+	require.NoError(t, err)
+
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyLeastInFlight, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+
+	// The .sock handler only reads markers when creating a ServiceSet; a rescan of
+	// an already-existing service must not re-check them, even though they changed.
+	require.NoError(t, os.Remove(markerPath(tmpDir, "least_in_flight")))
+	require.NoError(t, os.WriteFile(markerPath(tmpDir, "round_robin"), nil, 0644))
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
+
+	reg.mu.RLock()
+	assert.Equal(t, StrategyLeastInFlight, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+}
+
+func TestStrategyHandler_AppliesUnconditionally(t *testing.T) {
+	tmpDir, socketPath, node := setUpSvc(t, "least_in_flight")
+	defer node.unblock()
+
+	reg, err := NewRegistry()
+	require.NoError(t, err)
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
+
+	sh := NewStrategyHandler(reg)
+	leastInFlightMarker := markerPath(tmpDir, "least_in_flight")
+	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", []string{leastInFlightMarker}))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyLeastInFlight, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+
+	// Rescanning the exact same, unchanged marker must still apply it: proves there's
+	// no change-detection cache being skipped, unlike the old mtime-based design.
+	reg.mu.Lock()
+	reg.services["svc"].strategy = StrategyRoundRobin
+	reg.mu.Unlock()
+
+	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", []string{leastInFlightMarker}))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyLeastInFlight, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+}
+
+func TestStrategyHandler_FileRemovedResetsToDefault(t *testing.T) {
+	tmpDir, socketPath, node := setUpSvc(t, "least_in_flight")
+	defer node.unblock()
+
+	reg, err := NewRegistry()
+	require.NoError(t, err)
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
+
+	sh := NewStrategyHandler(reg)
+	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", []string{markerPath(tmpDir, "least_in_flight")}))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyLeastInFlight, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+
+	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", nil))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyRoundRobin, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+}
+
+func TestStrategyHandler_ApplyFullScan_ResetsServiceMissingFromByService(t *testing.T) {
+	tmpDir, socketPath, node := setUpSvc(t, "least_in_flight")
+	defer node.unblock()
+
+	reg, err := NewRegistry()
+	require.NoError(t, err)
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
+
+	sh := NewStrategyHandler(reg)
+	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", []string{markerPath(tmpDir, "least_in_flight")}))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyLeastInFlight, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+
+	require.NoError(t, sh.ApplyFullScan(tmpDir, map[string]map[string]struct{}{}))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyRoundRobin, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+}
+
+func TestStrategyHandler_ApplyFullScan_AppliesMarkerForExistingService(t *testing.T) {
+	tmpDir, socketPath, node := setUpSvc(t)
+	defer node.unblock()
+
+	reg, err := NewRegistry()
+	require.NoError(t, err)
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
+	reg.mu.RLock()
+	assert.Equal(t, StrategyRoundRobin, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+
+	leastInFlightMarker := markerPath(tmpDir, "least_in_flight")
+	require.NoError(t, os.WriteFile(leastInFlightMarker, nil, 0644))
+
+	sh := NewStrategyHandler(reg)
+	byService := map[string]map[string]struct{}{
+		"svc": {leastInFlightMarker: struct{}{}},
+	}
+	require.NoError(t, sh.ApplyFullScan(tmpDir, byService))
+
+	reg.mu.RLock()
+	assert.Equal(t, StrategyLeastInFlight, reg.services["svc"].strategy)
+	reg.mu.RUnlock()
+}
+
 func TestGetForwarders_RoundRobinStrategyUnchanged(t *testing.T) {
 	tmpDir := t.TempDir()
 
