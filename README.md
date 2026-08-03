@@ -111,6 +111,12 @@ Nautrouds uses a strict permission model for Unix Domain Sockets (UDS) to ensure
 | `/var/run/nautrouds/services` | Where backend services place their `.sock` files. |
 | `/var/run/nautrouds/entrypoints` | Where Nautrouds creates its entrypoint sockets. |
 
+### Per-Service Load Balancing Strategy
+
+By default, a service's nodes are balanced round-robin. To opt a service into least-in-flight balancing, drop an empty marker file named `least_in_flight.strategy` into that service's directory, e.g. `/var/run/nautrouds/services/<service>/least_in_flight.strategy`. An explicit `round_robin.strategy` marker is also recognized (equivalent to the default); if both are present, `least_in_flight` wins.
+
+Adding, editing, or removing the marker takes effect automatically: any filesystem change inside a service's directory (including to the marker itself) triggers a fresh scan of that service, and the periodic full scan re-evaluates every known service as a backstop even if a filesystem event was ever missed.
+
 ### Security Considerations
 
 Nautrouds is a UDS-only internal proxy: it assumes every process able to reach its sockets already sits inside your trust boundary. It does not provide TLS/mTLS, and several built-ins are deliberately permissive so operators can shape the trust model to their environment. The points below are deployment decisions that directly affect security — make them consciously rather than leaving them at defaults.

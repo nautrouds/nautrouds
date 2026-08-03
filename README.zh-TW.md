@@ -110,6 +110,12 @@ Nautrouds 對 Unix Domain Sockets (UDS) 採用嚴格的權限模型，在確保�
 | `/var/run/nautrouds/services` | 後端服務放置 `.sock` 檔案的地方。 |
 | `/var/run/nautrouds/entrypoints` | Nautrouds 建立入口 Socket 的地方。 |
 
+### 各服務的負載平衡策略
+
+服務節點預設採 round-robin 負載平衡。若要讓某個服務改用 least-in-flight，在該服務目錄下放一個空的標記檔 `least_in_flight.strategy` 即可,例如 `/var/run/nautrouds/services/<service>/least_in_flight.strategy`。也支援明確標記 `round_robin.strategy`（效果等同預設值）；若兩者同時存在，`least_in_flight` 優先。
+
+新增、修改或刪除標記檔會自動生效：service 目錄下任何檔案異動（包含標記檔本身）都會觸發該 service 的重新掃描；週期性的全量掃描也會針對所有已知 service 重新評估一次，作為事件漏接時的保底機制。
+
 ### 安全性注意事項
 
 Nautrouds 是純 UDS（Unix Domain Socket）內部 proxy：它假設任何能連上其 socket 的行程，都已經在你的信任邊界之內。它不提供 TLS/mTLS，且部分 built-in 功能刻意設計得較為寬鬆，讓維運人員可以依照自己的環境調整信任模型。以下項目是會直接影響安全性的部署決策，請有意識地做出選擇，而不是沿用預設值。
