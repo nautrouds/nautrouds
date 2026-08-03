@@ -28,10 +28,11 @@ type ServiceSet struct {
 	nodes     []string
 	nodeIndex map[string]int // node -> position in nodes; O(1) lookup & removal
 	index     atomic.Uint32
+	strategy  Strategy
 }
 
-func newServiceSet(nodes []string) *ServiceSet {
-	ss := &ServiceSet{}
+func newServiceSet(nodes []string, strategy Strategy) *ServiceSet {
+	ss := &ServiceSet{strategy: strategy}
 	ss.replace(nodes)
 	return ss
 }
@@ -141,7 +142,7 @@ func (r *Registry) moveToUnhealthyUnsafe(serviceName, nodePath string) {
 
 	us, ok := r.unhealthy[serviceName]
 	if !ok {
-		us = newServiceSet(nil)
+		us = newServiceSet(nil, StrategyRoundRobin)
 		r.unhealthy[serviceName] = us
 	}
 	us.add(nodePath)
@@ -201,8 +202,9 @@ func (r *Registry) GetForwarder(serviceName string) (*forwarder.Forwarder, error
 }
 
 // GetForwarders returns all healthy forwarders for a service, ordered starting
-// from the round-robin position. The index advances only once per call so that
-// retry loops within a single request visit each node exactly once.
+// from the round-robin position, then reordered per ss.strategy. The index
+// advances only once per call so that retry loops within a single request
+// visit each node exactly once.
 func (r *Registry) GetForwarders(serviceName string) []*forwarder.Forwarder {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -221,6 +223,12 @@ func (r *Registry) GetForwarders(serviceName string) []*forwarder.Forwarder {
 			result = append(result, ctx.forwarder)
 		}
 	}
+
+	switch ss.strategy {
+	case StrategyLeastInFlight:
+		result = SortByLoad(result)
+	}
+
 	return result
 }
 
@@ -258,7 +266,7 @@ func (r *Registry) ApplyFullScan(baseDir string, byService map[string]map[string
 			if ss, exists := r.services[svcName]; exists {
 				ss.replace(healthyNodes)
 			} else {
-				r.services[svcName] = newServiceSet(healthyNodes)
+				r.services[svcName] = newServiceSet(healthyNodes, StrategyRoundRobin)
 			}
 		} else {
 			delete(r.services, svcName)
@@ -325,7 +333,7 @@ func (r *Registry) ApplyServiceScan(baseDir string, serviceName string, discover
 		if ss, exists := r.services[serviceName]; exists {
 			ss.replace(finalHealthyNodes)
 		} else {
-			r.services[serviceName] = newServiceSet(finalHealthyNodes)
+			r.services[serviceName] = newServiceSet(finalHealthyNodes, StrategyRoundRobin)
 		}
 	} else {
 		delete(r.services, serviceName)
@@ -418,7 +426,7 @@ func (r *Registry) promoteToHealthyUnsafe(serviceName, nodePath string) {
 
 	ss, ok := r.services[serviceName]
 	if !ok {
-		ss = newServiceSet(nil)
+		ss = newServiceSet(nil, StrategyRoundRobin)
 		r.services[serviceName] = ss
 	}
 
