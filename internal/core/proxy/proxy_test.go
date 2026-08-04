@@ -118,15 +118,10 @@ func TestManager_LoadBalancing(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, nodes, 2)
 
-	// Verify that GetForwarder cycles through nodes.
-	f1, err := reg.GetForwarder("lb-service")
-	require.NoError(t, err)
-
-	f2, err := reg.GetForwarder("lb-service")
-	require.NoError(t, err)
-
-	f3, err := reg.GetForwarder("lb-service")
-	require.NoError(t, err)
+	// Verify that GetForwarders cycles through nodes.
+	f1 := reg.GetForwarders("lb-service")[0]
+	f2 := reg.GetForwarders("lb-service")[0]
+	f3 := reg.GetForwarders("lb-service")[0]
 
 	// We can't easily check private fields, but we know it's round-robin.
 	// If it was the same node, f1 and f2 would be identical in a way we can't easily see here,

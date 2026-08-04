@@ -84,9 +84,9 @@ func TestGetState_EmptyWhenNoServices(t *testing.T) {
 	assert.Empty(t, reg.GetState())
 }
 
-// --- GetForwarder ---
+// --- GetForwarders ---
 
-func TestGetForwarder_ErrorOnMissingService(t *testing.T) {
+func TestGetForwarders_NilForMissingService(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "nautrouds-getfwd-miss-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
@@ -94,11 +94,10 @@ func TestGetForwarder_ErrorOnMissingService(t *testing.T) {
 	reg, err := NewRegistry()
 	require.NoError(t, err)
 
-	_, err = reg.GetForwarder("nonexistent")
-	assert.Error(t, err)
+	assert.Nil(t, reg.GetForwarders("nonexistent"))
 }
 
-func TestGetForwarder_RoundRobin(t *testing.T) {
+func TestGetForwarders_RoundRobin(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "nautrouds-getfwd-rr-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
@@ -118,17 +117,14 @@ func TestGetForwarder_RoundRobin(t *testing.T) {
 	reg.services["svc"] = &ServiceSet{nodes: []string{s1, s2}}
 	reg.mu.Unlock()
 
-	got1, err := reg.GetForwarder("svc")
-	require.NoError(t, err)
-	got2, err := reg.GetForwarder("svc")
-	require.NoError(t, err)
+	got1 := reg.GetForwarders("svc")[0]
+	got2 := reg.GetForwarders("svc")[0]
 
 	// With 2 nodes, consecutive calls must return different forwarders.
 	assert.NotSame(t, got1, got2)
 
 	// Third call wraps back to the first forwarder.
-	got3, err := reg.GetForwarder("svc")
-	require.NoError(t, err)
+	got3 := reg.GetForwarders("svc")[0]
 	assert.Same(t, got1, got3)
 }
 

@@ -181,26 +181,6 @@ func (r *Registry) GetState() map[string][]string {
 	return state
 }
 
-func (r *Registry) GetForwarder(serviceName string) (*forwarder.Forwarder, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	ss, exists := r.services[serviceName]
-	if !exists || len(ss.nodes) == 0 {
-		return nil, os.ErrNotExist
-	}
-
-	idx := ss.index.Add(1) % uint32(len(ss.nodes))
-	nodePath := ss.nodes[idx]
-
-	ctx, ok := r.nodeMap[nodePath]
-	if !ok {
-		return nil, os.ErrNotExist
-	}
-
-	return ctx.forwarder, nil
-}
-
 // GetForwarders returns all healthy forwarders for a service, ordered starting
 // from the round-robin position, then reordered per ss.strategy. The index
 // advances only once per call so that retry loops within a single request
