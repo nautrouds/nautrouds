@@ -208,7 +208,7 @@ func TestForwarder_Forward_InFlightTracksLifecycle(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("timed out waiting for request to start")
 	}
-	assert.EqualValues(t, 1, f.InFlight())
+	assert.EqualValues(t, 1, f.InFlightWeight())
 
 	close(release)
 
@@ -217,7 +217,7 @@ func TestForwarder_Forward_InFlightTracksLifecycle(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("timed out waiting for request to finish")
 	}
-	assert.EqualValues(t, 0, f.InFlight())
+	assert.EqualValues(t, 0, f.InFlightWeight())
 }
 
 func TestForwarder_ForwardMiddleware_InFlightTracksLifecycle(t *testing.T) {
@@ -264,7 +264,7 @@ func TestForwarder_ForwardMiddleware_InFlightTracksLifecycle(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("timed out waiting for request to start")
 	}
-	assert.EqualValues(t, 1, f.InFlight())
+	assert.EqualValues(t, 1, f.InFlightWeight())
 
 	close(release)
 
@@ -273,7 +273,7 @@ func TestForwarder_ForwardMiddleware_InFlightTracksLifecycle(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("timed out waiting for request to finish")
 	}
-	assert.EqualValues(t, 0, f.InFlight())
+	assert.EqualValues(t, 0, f.InFlightWeight())
 }
 
 func TestForwarder_Forward_InFlightDecrementsOnError(t *testing.T) {
@@ -291,7 +291,7 @@ func TestForwarder_Forward_InFlightDecrementsOnError(t *testing.T) {
 
 	err = f.Forward(w, req)
 	assert.Equal(t, ErrNodeUnavailable, err)
-	assert.EqualValues(t, 0, f.InFlight())
+	assert.EqualValues(t, 0, f.InFlightWeight())
 }
 
 func TestForwarder_ForwardMiddleware_InFlightDecrementsOnError(t *testing.T) {
@@ -310,7 +310,7 @@ func TestForwarder_ForwardMiddleware_InFlightDecrementsOnError(t *testing.T) {
 
 	err = f.ForwardMiddleware(w, req, nil, "/", nil)
 	assert.Equal(t, ErrNodeUnavailable, err)
-	assert.EqualValues(t, 0, f.InFlight())
+	assert.EqualValues(t, 0, f.InFlightWeight())
 }
 
 func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
@@ -361,7 +361,7 @@ func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
 			t.Fatal("timed out waiting for a request to start")
 		}
 	}
-	assert.EqualValues(t, n, f.InFlight())
+	assert.EqualValues(t, n, f.InFlightWeight())
 
 	close(release)
 
@@ -376,5 +376,5 @@ func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("timed out waiting for all requests to finish")
 	}
-	assert.EqualValues(t, 0, f.InFlight())
+	assert.EqualValues(t, 0, f.InFlightWeight())
 }

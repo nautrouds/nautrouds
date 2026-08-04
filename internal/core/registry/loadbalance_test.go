@@ -22,12 +22,12 @@ type fakeLoad struct {
 	load int64
 }
 
-func (f *fakeLoad) InFlight() int64 { return f.load }
+func (f *fakeLoad) InFlightWeight() int64 { return f.load }
 
 func loadsOf(items []*fakeLoad) []int64 {
 	loads := make([]int64, len(items))
 	for i, it := range items {
-		loads[i] = it.InFlight()
+		loads[i] = it.InFlightWeight()
 	}
 	return loads
 }
@@ -182,9 +182,9 @@ func TestSortByLoad_RealForwarders(t *testing.T) {
 	loaded2 := newBlockingNode(t, 2)
 	defer loaded2.unblock()
 
-	require.EqualValues(t, 0, idle.InFlight())
-	require.EqualValues(t, 1, loaded1.fwd.InFlight())
-	require.EqualValues(t, 2, loaded2.fwd.InFlight())
+	require.EqualValues(t, 0, idle.InFlightWeight())
+	require.EqualValues(t, 1, loaded1.fwd.InFlightWeight())
+	require.EqualValues(t, 2, loaded2.fwd.InFlightWeight())
 
 	result := SortByLoad([]*forwarder.Forwarder{loaded2.fwd, idle, loaded1.fwd})
 
