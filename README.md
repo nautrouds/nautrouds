@@ -3,6 +3,11 @@ English | [繁體中文](README.zh-TW.md)
 <div align="center">
 	<img src="./docs/icon.webp" width="240" height="240" alt="Nautrouds logo" />
 	<h1>Nautrouds</h1>
+
+[![CI](https://github.com/nautrouds/nautrouds/actions/workflows/ci.yml/badge.svg)](https://github.com/nautrouds/nautrouds/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GHCR](https://img.shields.io/badge/GHCR-nautrouds%2Fnautrouds-blue?logo=docker)](https://github.com/nautrouds/nautrouds/pkgs/container/nautrouds)
 </div>
 
 ---
