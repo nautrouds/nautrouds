@@ -15,6 +15,10 @@ func (m *Manager) forwardToBackend(s *servingState) {
 			if err == forwarder.ErrNodeUnavailable {
 				continue
 			}
+			if err == forwarder.ErrBodyTooLarge {
+				http.Error(s.w, ErrRequestTooLarge, http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(s.w, ErrBadGateway, http.StatusBadGateway)
 			return
 		}

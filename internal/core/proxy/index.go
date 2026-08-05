@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	ErrInternal    = "Internal Server Error"
-	ErrBadGateway  = "Bad Gateway"
-	ErrServiceUnav = "Service Unavailable"
+	ErrInternal        = "Internal Server Error"
+	ErrBadGateway      = "Bad Gateway"
+	ErrServiceUnav     = "Service Unavailable"
+	ErrRequestTooLarge = "Request Entity Too Large"
 )
 
 type Manager struct {

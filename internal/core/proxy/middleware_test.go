@@ -2,13 +2,17 @@ package proxy_test
 
 import (
 	"context"
+	"io"
 	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/proxy"
 	"nautrouds/internal/core/registry"
 	"nautrouds/internal/rtree"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +20,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const chunkedContentLength = -1
 
 // fakeMmfgRequest is a minimal mmfg.Request stub that records how many times
 // Apply is called, so tests can assert it fires exactly once.
@@ -96,4 +102,50 @@ func TestManager_BodySizeLimit_AppliesAndDropsMmfgSession(t *testing.T) {
 
 	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
 	assert.Equal(t, int32(1), fakeReq.applyCount.Load())
+}
+
+func TestServeHTTP_ChunkedBodyExceedsBodySizeLimit_ReturnsRequestEntityTooLarge(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "proxy-body-too-large-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	svcDir := filepath.Join(tmpDir, "upload-service")
+	require.NoError(t, os.MkdirAll(svcDir, 0755))
+	socketPath := filepath.Join(svcDir, "node.sock")
+
+	l, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	defer l.Close()
+
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	go server.Serve(l)
+	defer server.Shutdown(context.Background())
+
+	reg, err := registry.NewRegistry()
+	require.NoError(t, err)
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "upload-service", []string{socketPath}))
+
+	manager := proxy.NewManager(reg, nil)
+
+	tree := rtree.Build([]*rtree.RawNode{
+		{
+			URL:         "example.com/upload",
+			Service:     "upload-service",
+			Methods:     "POST",
+			Middlewares: []string{"$BodySizeLimit(10)"},
+		},
+	})
+	manager.UpdateGeneration(&proxy.Generation{Tree: *tree})
+
+	req := httptest.NewRequest("POST", "http://example.com/upload", strings.NewReader("this body is way over the ten byte limit"))
+	req.ContentLength = chunkedContentLength
+	w := httptest.NewRecorder()
+	manager.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
 }
