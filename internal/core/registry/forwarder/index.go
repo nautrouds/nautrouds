@@ -27,6 +27,7 @@ var (
 	ErrNodeUnavailable   = errors.New("Node Unavailable")
 	ErrMiddlewareBlocked = errors.New("Middleware Blocked")
 	ErrServerError       = errors.New("Server Error")
+	ErrBodyTooLarge      = errors.New("Body Too Large")
 )
 
 var forbiddenHeaders = map[string]bool{
@@ -131,6 +132,11 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 				onFailure <- FailureForwarder{SocketPath: nodePath, Error: opErr.Err}
 			}
 			err = ErrNodeUnavailable
+		}
+
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			err = ErrBodyTooLarge
 		}
 
 		if errTarget, ok := r.Context().Value(proxyErrorKey{}).(*error); ok {

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const chunkedContentLength = -1
 
 func TestForwarder_Forward(t *testing.T) {
 	// 1. Setup a mock UDS Server
@@ -52,6 +55,39 @@ func TestForwarder_Forward(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "Hello from UDS", string(body))
+}
+
+func TestForwarder_Forward_ChunkedBodyExceedsMaxBytesReaderLimit(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-body-too-large-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "test.sock")
+
+	l, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	defer l.Close()
+
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	go server.Serve(l)
+	defer server.Shutdown(context.Background())
+
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, 1, onFailure)
+
+	req := httptest.NewRequest("POST", "http://example.com/upload", strings.NewReader("this body is way over the ten byte limit"))
+	req.ContentLength = chunkedContentLength
+	w := httptest.NewRecorder()
+	req.Body = http.MaxBytesReader(w, req.Body, 10)
+
+	err = f.Forward(w, req)
+
+	assert.ErrorIs(t, err, ErrBodyTooLarge)
 }
 
 func TestForwarder_ForwardMiddleware(t *testing.T) {
