@@ -66,6 +66,7 @@ Middlewares are applied to a route via indentation.
 | `$RequireHeader` | `(key, value)` | Rejects the request with `403` unless the header equals `value`. |
 | `$IPAllow` | `(cidr)` or `(headerKey, cidr)` | Restricts access by CIDR. With one argument, matches against `RemoteAddr`; with two, uses the value of `headerKey` in place of `RemoteAddr`. |
 | `$Log` | `(line)` | Prints `line` to stdout as-is. Use tags like `{method}`, `{path}`, `{remoteip}`, `{header.X}` to interpolate request info. |
+| `$BodySizeLimit` | `(size)` | Rejects requests whose body exceeds `size` with `413`. Accepts a plain byte count or a human-readable size with a `KB`/`MB`/`GB` suffix (1024-based), e.g. `512`, `10KB`, `5MB`, `1GB`. Must be the last middleware in the chain — this is enforced at compile time. |
 
 ---
 

@@ -2,10 +2,12 @@ package builtinsmware_test
 
 import (
 	"bufio"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 
 	"nautrouds/internal/core/builtins/builtinsmware"
@@ -369,6 +371,77 @@ func TestLog_PrintsLineAsIs(t *testing.T) {
 	assert.Equal(t, "hit GET /path from 127.0.0.1", scanner.Text())
 }
 
+func TestBodySizeLimit_ParsesSizes(t *testing.T) {
+	tests := []struct {
+		arg     string
+		wantMax int64
+		wantErr bool
+	}{
+		{"1024", 1024, false},
+		{"10KB", 10 * 1024, false},
+		{"5MB", 5 * 1024 * 1024, false},
+		{"1GB", 1024 * 1024 * 1024, false},
+		{"1.5MB", int64(1.5 * 1024 * 1024), false},
+		{"", 0, true},
+		{"-1", 0, true},
+		{"not-a-size", 0, true},
+		{"9999999999999999999GB", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.arg, func(t *testing.T) {
+			fn, err := builtinsmware.BodySizeLimit(tt.arg)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			w, _ := newWriter()
+			req := httptest.NewRequest("POST", "/", strings.NewReader(""))
+			req.ContentLength = tt.wantMax + 1
+			fn(w, req, nil)
+			assert.Equal(t, http.StatusRequestEntityTooLarge, w.GetCode())
+		})
+	}
+}
+
+func TestBodySizeLimit_RejectsOversizedContentLength(t *testing.T) {
+	fn, err := builtinsmware.BodySizeLimit("10")
+	require.NoError(t, err)
+	w, _ := newWriter()
+	req := httptest.NewRequest("POST", "/", strings.NewReader("this body is way over ten bytes"))
+	req.ContentLength = 32
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.GetCode())
+}
+
+func TestBodySizeLimit_WrapsBodyWithinLimit(t *testing.T) {
+	fn, err := builtinsmware.BodySizeLimit("1KB")
+	require.NoError(t, err)
+	w, _ := newWriter()
+	req := httptest.NewRequest("POST", "/", strings.NewReader("small body"))
+	req.ContentLength = int64(len("small body"))
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusOK, w.GetCode())
+
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "small body", string(body))
+}
+
+func TestBodySizeLimit_TruncatesOversizedChunkedBody(t *testing.T) {
+	fn, err := builtinsmware.BodySizeLimit("10")
+	require.NoError(t, err)
+	w, _ := newWriter()
+	req := httptest.NewRequest("POST", "/", strings.NewReader("this body is way over ten bytes"))
+	req.ContentLength = -1 // simulate chunked transfer: no Content-Length precheck
+	fn(w, req, nil)
+	assert.Equal(t, http.StatusOK, w.GetCode()) // MaxBytesReader defers the error to Read
+
+	_, err = io.ReadAll(req.Body)
+	assert.Error(t, err)
+}
+
 func TestArgCount_Errors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -387,6 +460,9 @@ func TestArgCount_Errors(t *testing.T) {
 		{"IPAllow/TooFew", func() error { _, err := builtinsmware.IPAllow(); return err }},
 		{"IPAllow/TooMany", func() error { _, err := builtinsmware.IPAllow("a", "b", "c"); return err }},
 		{"Log/TooFew", func() error { _, err := builtinsmware.Log(); return err }},
+		{"BodySizeLimit/TooFew", func() error { _, err := builtinsmware.BodySizeLimit(); return err }},
+		{"BodySizeLimit/TooMany", func() error { _, err := builtinsmware.BodySizeLimit("1", "2"); return err }},
+		{"BodySizeLimit/InvalidSize", func() error { _, err := builtinsmware.BodySizeLimit("not-a-size"); return err }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -409,6 +485,7 @@ func TestIsValid(t *testing.T) {
 		{"$RequireHeader(X-Internal, yes)", true},
 		{"$IPAllow(10.0.0.0/8)", true},
 		{"$Log(prefix)", true},
+		{"$BodySizeLimit(10MB)", true},
 		{"$UnknownMiddleware", false},
 		{"notabuiltin", false},
 		{"$SetHeader(unclosed", false},

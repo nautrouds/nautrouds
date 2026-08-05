@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/mmfg"
@@ -11,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"go.uber.org/zap"
@@ -269,6 +271,63 @@ func IPAllow(args ...string) (HandlerFunc, error) {
 	}, nil
 }
 
+// --- Traffic Control ---
+
+const BodySizeLimitFuncName = "$BodySizeLimit"
+
+var RequiresRealBody = map[string]bool{
+	BodySizeLimitFuncName: true,
+}
+
+// parseByteSize parses a plain byte count or a human-readable size with a
+// KB/MB/GB suffix (1024-based). Longer suffixes are checked first so "10MB"
+// isn't mistaken for a bare "B" size.
+func parseByteSize(s string) (int64, error) {
+	units := []struct {
+		suffix string
+		mult   int64
+	}{
+		{"GB", 1 << 30}, {"MB", 1 << 20}, {"KB", 1 << 10}, {"B", 1},
+	}
+	upper := strings.ToUpper(strings.TrimSpace(s))
+	for _, u := range units {
+		if strings.HasSuffix(upper, u.suffix) {
+			numPart := strings.TrimSpace(s[:len(s)-len(u.suffix)])
+			n, err := strconv.ParseFloat(numPart, 64)
+			if err != nil || n < 0 {
+				return 0, fmt.Errorf("invalid size %q", s)
+			}
+			bytes := n * float64(u.mult)
+			if bytes > math.MaxInt64 {
+				return 0, fmt.Errorf("size %q exceeds maximum supported value", s)
+			}
+			return int64(bytes), nil
+		}
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("invalid size %q", s)
+	}
+	return n, nil
+}
+
+func BodySizeLimit(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 1, 1); err != nil {
+		return nil, fmt.Errorf("%s: %w", BodySizeLimitFuncName, err)
+	}
+	max, err := parseByteSize(args[0])
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", BodySizeLimitFuncName, err)
+	}
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+		if r.ContentLength > max {
+			w.Reply("Request Entity Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, max)
+	}, nil
+}
+
 // --- Debugging & Utilities ---
 
 func Log(args ...string) (HandlerFunc, error) {
@@ -284,16 +343,17 @@ func Log(args ...string) (HandlerFunc, error) {
 // --- Registry ---
 
 var Registry = map[string]MiddlewareFactory{
-	"$SetHeader":      SetHeader,
-	"$DelHeader":      DelHeader,
-	"$SetHost":        SetHost,
-	"$PathTrimPrefix": PathTrimPrefix,
-	"$RewritePath":    RewritePath,
-	"$SetQuery":       SetQuery,
-	"$BasicAuth":      BasicAuth,
-	"$RequireHeader":  RequireHeader,
-	"$IPAllow":        IPAllow,
-	"$Log":            Log,
+	"$SetHeader":          SetHeader,
+	"$DelHeader":          DelHeader,
+	"$SetHost":            SetHost,
+	"$PathTrimPrefix":     PathTrimPrefix,
+	"$RewritePath":        RewritePath,
+	"$SetQuery":           SetQuery,
+	"$BasicAuth":          BasicAuth,
+	"$RequireHeader":      RequireHeader,
+	"$IPAllow":            IPAllow,
+	"$Log":                Log,
+	BodySizeLimitFuncName: BodySizeLimit,
 }
 
 // IsValid checks if an expression looks like a builtin and if it exists in the registry.
