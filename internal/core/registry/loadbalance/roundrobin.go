@@ -23,6 +23,12 @@ func NewRoundRobin(forwarders []*forwarder.Forwarder) *RoundRobin {
 		total += weights[i]
 	}
 
+	if total == n {
+		expanded := make([]*forwarder.Forwarder, n)
+		copy(expanded, forwarders)
+		return &RoundRobin{forwarders: expanded}
+	}
+
 	current := make([]int, n)
 	expanded := make([]*forwarder.Forwarder, 0, total)
 	for range total {
