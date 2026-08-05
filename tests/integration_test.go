@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -217,6 +218,43 @@ GET */middleware/* backend-service
 		// Check header
 		headers := res["headers"].(map[string]interface{})
 		assert.Equal(t, "middleware-applied", headers["X-Test-Header"].([]interface{})[0])
+	})
+
+	t.Run("Middleware - BodySizeLimit", func(t *testing.T) {
+		bodySizeLimitConfig := `
+POST */upload backend-service
+    $BodySizeLimit(10)
+`
+		err = os.WriteFile(configPath, []byte(configContent+bodySizeLimitConfig), 0644)
+		assert.NoError(t, err)
+
+		// Wait for hot-reload
+		time.Sleep(2 * time.Second)
+
+		t.Run("within limit", func(t *testing.T) {
+			resp, err := client.Post("http://localhost/upload", "text/plain", strings.NewReader("tiny"))
+			assert.NoError(t, err)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		})
+
+		t.Run("declared Content-Length exceeds limit", func(t *testing.T) {
+			resp, err := client.Post("http://localhost/upload", "text/plain", strings.NewReader("this body is way over the ten byte limit"))
+			assert.NoError(t, err)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+		})
+
+		t.Run("chunked body exceeds limit", func(t *testing.T) {
+			req, err := http.NewRequest("POST", "http://localhost/upload", strings.NewReader("this body is way over the ten byte limit"))
+			assert.NoError(t, err)
+			req.ContentLength = -1
+
+			resp, err := client.Do(req)
+			assert.NoError(t, err)
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+		})
 	})
 
 	// Test Hot Reload: Add a new virtual service
