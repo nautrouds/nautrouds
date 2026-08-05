@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"nautrouds/internal/core/registry/forwarder"
+	"nautrouds/internal/core/registry/loadbalance"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,14 @@ import (
 // probe failures never reach the registry's listenFailures goroutine.
 func makeForwarder(socketPath string) *forwarder.Forwarder {
 	failCh := make(chan forwarder.FailureForwarder, 1)
-	return forwarder.New("svc", socketPath, failCh)
+	weight, _ := loadbalance.ParseNodeWeight(socketPath)
+	return forwarder.New("svc", socketPath, weight, failCh)
+}
+
+func newTestServiceSet(nodes []string, strategy loadbalance.Strategy, nodeMap map[string]*nodeContext) *ServiceSet {
+	ss := newServiceSet(nodes, strategy)
+	rebuildLoadBalancer(ss, nodeMap)
+	return ss
 }
 
 // --- GetNodes ---
@@ -114,7 +122,7 @@ func TestGetForwarders_RoundRobin(t *testing.T) {
 	reg.mu.Lock()
 	reg.nodeMap[s1] = &nodeContext{serviceName: "svc", forwarder: f1}
 	reg.nodeMap[s2] = &nodeContext{serviceName: "svc", forwarder: f2}
-	reg.services["svc"] = &ServiceSet{nodes: []string{s1, s2}}
+	reg.services["svc"] = newTestServiceSet([]string{s1, s2}, loadbalance.StrategyRoundRobin, reg.nodeMap)
 	reg.mu.Unlock()
 
 	got1 := reg.GetForwarders("svc")[0]
