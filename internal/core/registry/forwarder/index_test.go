@@ -40,7 +40,7 @@ func TestForwarder_Forward(t *testing.T) {
 
 	// 2. Use Forwarder to send request to UDS
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	req := httptest.NewRequest("GET", "http://example.com/api/test", nil)
 	w := httptest.NewRecorder()
@@ -80,7 +80,7 @@ func TestForwarder_ForwardMiddleware(t *testing.T) {
 	defer server.Shutdown(context.Background())
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	t.Run("Authorized", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://example.com/", nil)
@@ -126,7 +126,7 @@ func TestForwarder_FailureReporting(t *testing.T) {
 	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	t.Run("Forward Failure", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://example.com/", nil)
@@ -193,7 +193,7 @@ func TestForwarder_Forward_InFlightTracksLifecycle(t *testing.T) {
 	defer server.Shutdown(context.Background())
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	done := make(chan struct{})
 	go func() {
@@ -248,7 +248,7 @@ func TestForwarder_ForwardMiddleware_InFlightTracksLifecycle(t *testing.T) {
 	defer server.Shutdown(context.Background())
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	done := make(chan struct{})
 	go func() {
@@ -284,7 +284,7 @@ func TestForwarder_Forward_InFlightDecrementsOnError(t *testing.T) {
 	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	w := httptest.NewRecorder()
@@ -302,7 +302,7 @@ func TestForwarder_ForwardMiddleware_InFlightDecrementsOnError(t *testing.T) {
 	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
@@ -343,7 +343,7 @@ func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
 	defer server.Shutdown(context.Background())
 
 	onFailure := make(chan FailureForwarder, n)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	var wg sync.WaitGroup
 	for range n {

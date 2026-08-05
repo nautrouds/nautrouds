@@ -41,7 +41,7 @@ func TestForwarder_UsesHTTP2WhenBackendSupportsIt(t *testing.T) {
 	defer server.Shutdown(context.Background())
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	require.Eventually(t, func() bool {
 		return f.useHTTP2.Load()
@@ -78,7 +78,7 @@ func TestForwarder_FallsBackToHTTP1WhenBackendDoesNotSupportH2(t *testing.T) {
 	defer server.Shutdown(context.Background())
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	// let the background probe settle before checking it resolved to false
 	time.Sleep(300 * time.Millisecond)
@@ -113,7 +113,7 @@ func TestForwarder_TryReconnectReprobesHTTP2(t *testing.T) {
 	go h1Server.Serve(l1)
 
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, onFailure)
+	f := New("test-service", socketPath, 1, onFailure)
 
 	require.Eventually(t, func() bool {
 		return !f.useHTTP2.Load()

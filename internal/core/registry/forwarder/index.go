@@ -56,7 +56,7 @@ type Forwarder struct {
 	transport    *dualTransport
 }
 
-func New(serviceName, nodePath string, onFailure chan FailureForwarder) *Forwarder {
+func New(serviceName, nodePath string, weight int32, onFailure chan FailureForwarder) *Forwarder {
 	dialContext := func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", nodePath)
 	}
@@ -83,7 +83,7 @@ func New(serviceName, nodePath string, onFailure chan FailureForwarder) *Forward
 		serviceName: serviceName,
 		socketPath:  nodePath,
 		onFailure:   onFailure,
-		weight:      1,
+		weight:      weight,
 	}
 	f.transport = &dualTransport{useHTTP2: &f.useHTTP2, h1: h1Transport, h2: h2Transport}
 	f.client = &http.Client{
@@ -111,10 +111,10 @@ func (f *Forwarder) Wait() {
 }
 
 func (f *Forwarder) InFlightWeight() int64 {
-	return f.inFlight.Load()
+	return f.inFlight.Load() / int64(f.weight)
 }
 
-func (f *Forwarder) RoundRobinWeight() int32 {
+func (f *Forwarder) Weight() int32 {
 	return f.weight
 }
 
