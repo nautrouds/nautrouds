@@ -16,6 +16,7 @@ var strategyPriority = []struct {
 	token    string
 	strategy loadbalance.Strategy
 }{
+	{"p2c", loadbalance.StrategyP2C},
 	{"least_in_flight", loadbalance.StrategyLeastInFlight},
 	{"round_robin", loadbalance.StrategyRoundRobin},
 }

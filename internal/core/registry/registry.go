@@ -69,7 +69,7 @@ func buildLeastInFlight(nodes []string, nodeMap map[string]*nodeContext) *loadba
 
 func rebuildLoadBalancer(ss *ServiceSet, nodeMap map[string]*nodeContext) {
 	switch ss.strategy {
-	case loadbalance.StrategyLeastInFlight:
+	case loadbalance.StrategyLeastInFlight, loadbalance.StrategyP2C:
 		ss.leastInFlight.Store(buildLeastInFlight(ss.nodes, nodeMap))
 	default:
 		ss.roundRobin.Store(buildRoundRobin(ss.nodes, nodeMap))
@@ -236,6 +236,8 @@ func (r *Registry) GetForwarders(serviceName string) []*forwarder.Forwarder {
 	switch ss.strategy {
 	case loadbalance.StrategyLeastInFlight:
 		return ss.leastInFlight.Load().Get()
+	case loadbalance.StrategyP2C:
+		return ss.leastInFlight.Load().GetP2C()
 	default:
 		return ss.roundRobin.Load().Get()
 	}
