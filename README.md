@@ -113,9 +113,21 @@ Nautrouds uses a strict permission model for Unix Domain Sockets (UDS) to ensure
 
 ### Per-Service Load Balancing Strategy
 
-By default, a service's nodes are balanced round-robin. To opt a service into least-in-flight balancing, drop an empty marker file named `least_in_flight.strategy` into that service's directory, e.g. `/var/run/nautrouds/services/<service>/least_in_flight.strategy`. An explicit `round_robin.strategy` marker is also recognized (equivalent to the default); if both are present, `least_in_flight` wins.
+By default, a service's nodes are balanced round-robin. Drop an empty marker file into that service's directory to opt into a different strategy. If multiple markers are present, the highest-priority one wins:
+
+| Priority | Marker file |
+| :--- | :--- |
+| 1 (highest) | `p2c.strategy` |
+| 2 | `least_in_flight.strategy` |
+| 3 (default) | `round_robin.strategy` |
 
 Adding, editing, or removing the marker takes effect automatically: any filesystem change inside a service's directory (including to the marker itself) triggers a fresh scan of that service, and the periodic full scan re-evaluates every known service as a backstop even if a filesystem event was ever missed.
+
+### Per-Node Weight
+
+A node's socket filename can carry a weight suffix: `<name>@<weight>.sock`. Weight must be an integer in `[1, 100]`; a missing suffix defaults to 1, and an invalid or out-of-range value falls back to 1 with a warning logged.
+
+Round-robin schedules proportionally via smooth interleaving (not bursts); least-in-flight/p2c divide in-flight count by weight before comparing.
 
 ### Security Considerations
 

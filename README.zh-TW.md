@@ -112,9 +112,21 @@ Nautrouds 對 Unix Domain Sockets (UDS) 採用嚴格的權限模型，在確保�
 
 ### 各服務的負載平衡策略
 
-服務節點預設採 round-robin 負載平衡。若要讓某個服務改用 least-in-flight，在該服務目錄下放一個空的標記檔 `least_in_flight.strategy` 即可,例如 `/var/run/nautrouds/services/<service>/least_in_flight.strategy`。也支援明確標記 `round_robin.strategy`（效果等同預設值）；若兩者同時存在，`least_in_flight` 優先。
+服務節點預設採 round-robin 負載平衡。在該服務目錄下放一個空的標記檔即可切換成其他策略。若同時存在多個標記檔，優先序較高的獲勝：
+
+| 優先序 | 標記檔 |
+| :--- | :--- |
+| 1（最高） | `p2c.strategy` |
+| 2 | `least_in_flight.strategy` |
+| 3（預設） | `round_robin.strategy` |
 
 新增、修改或刪除標記檔會自動生效：service 目錄下任何檔案異動（包含標記檔本身）都會觸發該 service 的重新掃描；週期性的全量掃描也會針對所有已知 service 重新評估一次，作為事件漏接時的保底機制。
+
+### 各節點的權重
+
+節點的 socket 檔名可以帶權重後綴：`<name>@<weight>.sock`。權重必須是 `[1, 100]` 範圍內的整數；沒有後綴預設為 1，格式錯誤或超出範圍會 fallback 成 1 並記一筆警告。
+
+round-robin 會依權重比例做平滑交錯排程（不會爆發式集中）；least-in-flight/p2c 則是拿在途請求數除以權重後再比較。
 
 ### 安全性注意事項
 
