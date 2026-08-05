@@ -90,6 +90,19 @@ func (ss *ServiceSet) contains(node string) bool {
 	return ok
 }
 
+func (ss *ServiceSet) sameNodes(nodes []string) bool {
+	if len(nodes) != len(ss.nodes) {
+		return false
+	}
+	ss.ensureNodePositions()
+	for _, n := range nodes {
+		if _, ok := ss.nodePositions[n]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (ss *ServiceSet) add(node string) bool {
 	ss.ensureNodePositions()
 	if _, ok := ss.nodePositions[node]; ok {
@@ -171,8 +184,9 @@ func (r *Registry) listenFailures() {
 
 func (r *Registry) moveToUnhealthyUnsafe(serviceName, nodePath string) {
 	if ss, ok := r.services[serviceName]; ok {
-		ss.remove(nodePath)
-		rebuildLoadBalancer(ss, r.nodeMap)
+		if ss.remove(nodePath) {
+			rebuildLoadBalancer(ss, r.nodeMap)
+		}
 		if len(ss.nodes) == 0 {
 			delete(r.services, serviceName)
 		}
@@ -274,16 +288,17 @@ func (r *Registry) ApplyFullScan(baseDir string, byService map[string]map[string
 		}
 
 		if len(healthyNodes) > 0 {
-			var ss *ServiceSet
 			if existing, exists := r.services[svcName]; exists {
-				existing.replace(healthyNodes)
-				ss = existing
+				if !existing.sameNodes(healthyNodes) {
+					existing.replace(healthyNodes)
+					rebuildLoadBalancer(existing, r.nodeMap)
+				}
 			} else {
 				strategy := readStrategyAtCreation(baseDir, svcName)
-				ss = newServiceSet(healthyNodes, strategy)
+				ss := newServiceSet(healthyNodes, strategy)
 				r.services[svcName] = ss
+				rebuildLoadBalancer(ss, r.nodeMap)
 			}
-			rebuildLoadBalancer(ss, r.nodeMap)
 		} else {
 			delete(r.services, svcName)
 		}
@@ -346,16 +361,17 @@ func (r *Registry) ApplyServiceScan(baseDir string, serviceName string, discover
 
 	// 3. Update service set
 	if len(finalHealthyNodes) > 0 {
-		var ss *ServiceSet
 		if existing, exists := r.services[serviceName]; exists {
-			existing.replace(finalHealthyNodes)
-			ss = existing
+			if !existing.sameNodes(finalHealthyNodes) {
+				existing.replace(finalHealthyNodes)
+				rebuildLoadBalancer(existing, r.nodeMap)
+			}
 		} else {
 			strategy := readStrategyAtCreation(baseDir, serviceName)
-			ss = newServiceSet(finalHealthyNodes, strategy)
+			ss := newServiceSet(finalHealthyNodes, strategy)
 			r.services[serviceName] = ss
+			rebuildLoadBalancer(ss, r.nodeMap)
 		}
-		rebuildLoadBalancer(ss, r.nodeMap)
 	} else {
 		delete(r.services, serviceName)
 	}
@@ -380,8 +396,9 @@ func (r *Registry) removeNodeUnsafe(nodePath string, shouldDeleteFile bool) {
 	delete(r.nodeMap, nodePath)
 
 	if ss, ok := r.services[serviceName]; ok {
-		ss.remove(nodePath)
-		rebuildLoadBalancer(ss, r.nodeMap)
+		if ss.remove(nodePath) {
+			rebuildLoadBalancer(ss, r.nodeMap)
+		}
 		metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(ss.nodes)))
 		if len(ss.nodes) == 0 {
 			delete(r.services, serviceName)
@@ -452,8 +469,9 @@ func (r *Registry) promoteToHealthyUnsafe(serviceName, nodePath string) {
 		r.services[serviceName] = ss
 	}
 
-	ss.add(nodePath)
-	rebuildLoadBalancer(ss, r.nodeMap)
+	if ss.add(nodePath) {
+		rebuildLoadBalancer(ss, r.nodeMap)
+	}
 
 	metrics.Global.ServiceNodesActive.WithLabelValues(serviceName).Set(float64(len(ss.nodes)))
 }
@@ -462,7 +480,7 @@ func (r *Registry) setStrategy(serviceName string, s loadbalance.Strategy) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ss, ok := r.services[serviceName]
-	if !ok {
+	if !ok || ss.strategy == s {
 		return
 	}
 	ss.strategy = s
