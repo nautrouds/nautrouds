@@ -100,6 +100,19 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 				http.Error(s.w, ErrInternal, http.StatusInternalServerError)
 				return true
 			}
+
+			if mr != nil {
+				funcName, _, _ := strings.Cut(mwExpr, "(")
+				if builtinsmware.RequiresRealBody[funcName] {
+					if err := mr.Apply(); err != nil {
+						logs.Out.Error("mmfg Apply Error", zap.Error(err))
+						http.Error(s.w, ErrInternal, http.StatusInternalServerError)
+						return true
+					}
+					mr = nil
+				}
+			}
+
 			handler(s.tempResp, s.r, mr)
 			if s.tempResp.GetCode() != http.StatusOK {
 				if !s.tempResp.IsPassthrough() {
