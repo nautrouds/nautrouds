@@ -66,10 +66,38 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set image version
         id: version
         run: echo "value=$(date -u +'%y%m%d%H')-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Get Previous Tag
+        id: prev_tag
+        run: echo "value=$(git tag --sort=-creatordate | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Build Release Notes
+        id: notes
+        env:
+          PREV_TAG: ${{ steps.prev_tag.outputs.value }}
+          CUR_TAG: ${{ steps.version.outputs.value }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG_LINE="**Full Changelog**: https://github.com/${REPO}/compare/${PREV_TAG}...${CUR_TAG}"
+          else
+            CHANGELOG_LINE="**Full Changelog**: https://github.com/${REPO}/commits/${CUR_TAG}"
+          fi
+
+          {
+            echo "body<<EOF"
+            echo "## What's Changed"
+            git log -1 --pretty=%B "$GITHUB_SHA"
+            echo ""
+            echo "$CHANGELOG_LINE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -107,4 +135,4 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.value }}
           target_commitish: ${{ github.sha }}
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.body }}
