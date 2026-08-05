@@ -31,11 +31,11 @@ Nautrouds is a dynamic service management and proxy system designed for high-ava
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-repo/nautrouds.git
+git clone https://github.com/nautrouds/nautrouds.git
 cd nautrouds
 
 # Build the core binary
-go build -o bin/nautrouds-core ./cmd/core
+go build -o bin/nautrouds ./cmd/core
 
 # Build the ntuc compiler
 go build -o bin/ntuc ./cmd/ntuc
@@ -46,7 +46,7 @@ go build -o bin/ntuc ./cmd/ntuc
 Run the Nautrouds core service:
 
 ```bash
-./bin/nautrouds-core --config=my-app.ntu
+./bin/nautrouds --config=my-app.ntu
 ```
 
 ## Configuration

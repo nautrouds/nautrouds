@@ -8,7 +8,7 @@ Nautrouds utilizes a high-performance, low-overhead communication channel for me
 
 - **Transport**: Unix Domain Socket (UDS)
 - **Format**: Raw Binary (Header + Protobuf Payload + Checksum)
-- **Default Socket Path**: `/var/run/nautrouds/services/metrics.sock` (Adjustable via `--services-dir`)
+- **Default Socket Path**: `/var/run/nautrouds/services/metrics.sock` — the directory comes from `--services-dir`/`NAUTROUDS_SERVICES_DIR`, and the filename from `--metrics-socket`/`NAUTROUDS_METRICS_SOCKET` (defaults to `metrics.sock`; set to `-` to disable the collector entirely). See the [Tooling Guide](./ntuc.md) for details.
 
 ---
 
@@ -32,7 +32,7 @@ The metrics payload is strictly governed by a centralized Protobuf schema to ens
 
 Please refer to the official repository for the latest `.proto` definitions, generated bindings, and schema documentation:
 
-+> **[nautroudsUDS/tentacle-metrics](https://github.com/nautroudsUDS/tentacle-metrics)**
++> **[nautrouds/tentacle-metrics](https://github.com/nautrouds/tentacle-metrics)**
 
 ### Key Data Concepts
 While the specific message structure is defined in the repository above, the logical model includes:

@@ -36,6 +36,18 @@ POST /upload/* storage-service
 - `#`: Single-line comment.
 - `#*`: Block comment (skips until the next blank line).
 
+### Route Tags
+An indented line starting with `@` attaches a tag to the rule instead of a middleware. Tags are metadata read by the core engine, not request-processing steps.
+
+| Tag | Description |
+| :--- | :--- |
+| `@no-metrics` / `@!metrics` | Excludes this route from the per-request HTTP metrics (`nautrouds_http_requests_total`, byte counters, etc.). Both forms are equivalent. |
+
+```text
+GET /health $ok
+    @no-metrics
+```
+
 ---
 
 ## Built-in Middlewares ($)
@@ -106,7 +118,7 @@ Virtual services are functional endpoints provided by the Nautrouds core.
 
 ## Routing Logic
 
-1. **Radix Tree Matching**: Nautrouds uses a Radix Tree for O(1) or O(log N) path matching.
+1. **Radix Tree Matching**: Nautrouds uses a Radix Tree for path matching, walking the tree segment-by-segment rather than scanning every route.
 2. **Wildcards**: `*` matches any segment. Backtracking is supported for complex patterns.
 3. **Priority**: Specific paths are matched before wildcards.
 4. **Method Filtering**: If a method is specified (e.g., `POST`), requests with other methods will result in a 405 or 404 depending on tree structure.

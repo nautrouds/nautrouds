@@ -31,11 +31,11 @@ Nautrouds 是一個動態服務管理與代理系統，專為高可用性的請�
 
 ```bash
 # Clone 儲存庫
-git clone https://github.com/your-repo/nautrouds.git
+git clone https://github.com/nautrouds/nautrouds.git
 cd nautrouds
 
 # 編譯核心執行檔
-go build -o bin/nautrouds-core ./cmd/core
+go build -o bin/nautrouds ./cmd/core
 
 # 編譯 ntuc 編譯器
 go build -o bin/ntuc ./cmd/ntuc
@@ -46,7 +46,7 @@ go build -o bin/ntuc ./cmd/ntuc
 執行 Nautrouds 核心服務：
 
 ```bash
-./bin/nautrouds-core --config=my-app.ntu
+./bin/nautrouds --config=my-app.ntu
 ```
 
 ## 設定
