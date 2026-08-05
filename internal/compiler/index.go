@@ -131,6 +131,9 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 						return nil, fmt.Errorf("line %d: %s", lineCount, err)
 					}
 				}
+				if err := validateMiddlewareOrder(currentRule.Middlewares, trimmed); err != nil {
+					return nil, fmt.Errorf("line %d: %s", lineCount, err)
+				}
 				currentRule.Middlewares = append(currentRule.Middlewares, trimmed)
 			}
 		}

@@ -237,6 +237,55 @@ GET example.com/api svc
 	assert.Contains(t, err.Error(), "line 3")
 }
 
+func TestParse_BodySizeLimit_MustBeLast(t *testing.T) {
+	cases := []struct {
+		name string
+		next string
+	}{
+		{"FollowedByBuiltin", "$SetHeader(a, b)"},
+		{"FollowedByMmfg", "$mmfg(node)"},
+		{"FollowedByExternal", "auth-service"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			script := fmt.Sprintf(`
+GET example.com/api svc
+    $BodySizeLimit(1KB)
+    %s
+`, c.next)
+			_, err := compiler.ParseString(script)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "must be the last middleware")
+			assert.Contains(t, err.Error(), "line 4")
+		})
+	}
+}
+
+func TestParse_BodySizeLimit_ValidAsLast(t *testing.T) {
+	script := `
+GET example.com/api svc
+    $SetHeader(a, b)
+    $BodySizeLimit(1KB)
+`
+	tree, err := compiler.ParseString(script)
+	require.NoError(t, err)
+	require.NotNil(t, tree)
+
+	url := []byte("example.com/api")
+	rtree.ReverseHost(url)
+	node, exists := tree.Search(url)
+	require.True(t, exists)
+
+	mwCount := tree.ActionMetadata[node.ActionIndex+1]
+	var mws []string
+	for i := range mwCount {
+		mwMetaIndex := tree.ActionMetadata[node.ActionIndex+2+i]
+		mws = append(mws, tree.GetActionName(tree.ActionMetadata[mwMetaIndex]))
+	}
+	assert.ElementsMatch(t, []string{"$SetHeader(a, b)", "$BodySizeLimit(1KB)"}, mws)
+}
+
 func TestParse_UnclosedBracketInURL(t *testing.T) {
 	script := `
 GET example.com/api svc-1
