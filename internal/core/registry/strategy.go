@@ -2,6 +2,7 @@ package registry
 
 import (
 	"nautrouds/internal/core/logs"
+	"nautrouds/internal/core/registry/loadbalance"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,13 +14,13 @@ const strategyFileSuffix = ".strategy"
 
 var strategyPriority = []struct {
 	token    string
-	strategy Strategy
+	strategy loadbalance.Strategy
 }{
-	{"least_in_flight", StrategyLeastInFlight},
-	{"round_robin", StrategyRoundRobin},
+	{"least_in_flight", loadbalance.StrategyLeastInFlight},
+	{"round_robin", loadbalance.StrategyRoundRobin},
 }
 
-func readStrategyAtCreation(baseDir, serviceName string) Strategy {
+func readStrategyAtCreation(baseDir, serviceName string) loadbalance.Strategy {
 	dir := filepath.Join(baseDir, serviceName)
 	for _, candidate := range strategyPriority {
 		path := filepath.Join(dir, candidate.token+strategyFileSuffix)
@@ -32,10 +33,10 @@ func readStrategyAtCreation(baseDir, serviceName string) Strategy {
 				zap.String("service", serviceName), zap.String("path", path), zap.Error(err))
 		}
 	}
-	return StrategyRoundRobin
+	return loadbalance.StrategyRoundRobin
 }
 
-func resolveMarkerStrategy(paths []string, serviceName string) Strategy {
+func resolveMarkerStrategy(paths []string, serviceName string) loadbalance.Strategy {
 	tokens := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
 		tokens[strings.TrimSuffix(filepath.Base(path), strategyFileSuffix)] = struct{}{}
@@ -50,7 +51,7 @@ func resolveMarkerStrategy(paths []string, serviceName string) Strategy {
 	if len(tokens) > 0 {
 		logs.Out.Warn("No recognized strategy marker file for service", zap.String("service", serviceName))
 	}
-	return StrategyRoundRobin
+	return loadbalance.StrategyRoundRobin
 }
 
 type StrategyHandler struct {
