@@ -156,7 +156,9 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 
 	rp.ModifyResponse = func(resp *http.Response) error {
 		if start, ok := resp.Request.Context().Value(upstreamStartKey{}).(time.Time); ok {
-			metrics.Global.UpstreamDuration.WithLabelValues(serviceName, nodePath).Observe(time.Since(start).Seconds())
+			d := time.Since(start)
+			metrics.Global.UpstreamDuration.WithLabelValues(serviceName, nodePath).Observe(d.Seconds())
+			metrics.AddExternalDuration(resp.Request.Context(), d)
 		}
 		return nil
 	}
@@ -181,7 +183,9 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 
 	start := time.Now()
 	defer func() {
-		metrics.Global.UpstreamDuration.WithLabelValues(f.serviceName, f.socketPath).Observe(time.Since(start).Seconds())
+		d := time.Since(start)
+		metrics.Global.UpstreamDuration.WithLabelValues(f.serviceName, f.socketPath).Observe(d.Seconds())
+		metrics.AddExternalDuration(r.Context(), d)
 	}()
 
 	if len(path) > 0 && path[0] != '/' {

@@ -23,6 +23,7 @@ type Registry struct {
 	// New performance and latency metrics
 	RequestDuration  *prometheus.HistogramVec
 	UpstreamDuration *prometheus.HistogramVec
+	OwnDuration      *prometheus.HistogramVec
 
 	// Detailed traffic analysis
 	HTTPRequestsTotal  *prometheus.CounterVec
@@ -97,6 +98,12 @@ func NewRegistry() *Registry {
 			Help:    "Upstream response time in seconds",
 			Buckets: DefaultBuckets,
 		}, []string{"service", "node"}),
+
+		OwnDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "nautrouds_own_duration_seconds",
+			Help:    "Request time spent in nautrouds itself, excluding external backend/middleware calls, in seconds",
+			Buckets: DefaultBuckets,
+		}, []string{"route"}),
 
 		HTTPRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "nautrouds_http_requests_total",
@@ -176,6 +183,7 @@ func NewRegistry() *Registry {
 		r.uptimeSeconds,
 		r.RequestDuration,
 		r.UpstreamDuration,
+		r.OwnDuration,
 		r.HTTPRequestsTotal,
 		r.RequestBytesTotal,
 		r.ResponseBytesTotal,

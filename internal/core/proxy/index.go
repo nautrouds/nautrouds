@@ -72,6 +72,9 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	trackedWriter := newTrackedResponseWriter(w)
 	defer trackedWriter.release()
 
+	ctx, externalNs := metrics.NewOwnTimeContext(r.Context())
+	r = r.WithContext(ctx)
+
 	state := m.State.Load()
 	s := &servingState{
 		w:     trackedWriter,
@@ -84,8 +87,11 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if trackedWriter.hijacked {
 			return
 		}
-		duration := time.Since(start).Seconds()
-		metrics.Global.RequestDuration.WithLabelValues(r.Method, s.routePattern).Observe(duration)
+		total := time.Since(start)
+		metrics.Global.RequestDuration.WithLabelValues(r.Method, s.routePattern).Observe(total.Seconds())
+
+		own := total - time.Duration(externalNs.Load())
+		metrics.Global.OwnDuration.WithLabelValues(s.routePattern).Observe(own.Seconds())
 	}()
 
 	// Route Lookup
