@@ -2,203 +2,14 @@ package rtree
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"nautrouds/internal/interpolate"
 	"nautrouds/internal/tags"
-	"net/http"
 	"regexp"
 	"slices"
 	"strings"
-	"unsafe"
 )
 
-const (
-	MethodGet uint16 = 1 << iota
-	MethodPost
-	MethodPut
-	MethodDelete
-	MethodHead
-	MethodConnect
-	MethodOptions
-	MethodTrace
-	MethodPatch
-	MethodAny uint16 = 0xFFF
-)
-
-const (
-	WildcardGreedy byte = 0x01
-	Wildcard       byte = 0x02
-)
-
-// HTTPMethodMap maps standard HTTP method strings to internal bitmasks.
-var HTTPMethodMap = map[string]uint16{
-	http.MethodGet:     MethodGet,
-	http.MethodPost:    MethodPost,
-	http.MethodPut:     MethodPut,
-	http.MethodDelete:  MethodDelete,
-	http.MethodHead:    MethodHead,
-	http.MethodConnect: MethodConnect,
-	http.MethodOptions: MethodOptions,
-	http.MethodTrace:   MethodTrace,
-	http.MethodPatch:   MethodPatch,
-}
-
-// Edge represents the finalized transition from a parent node to a child node.
-type Edge struct {
-	TargetID uint32 // Index of the destination node in NodePool
-	Offset   uint32 // Start position of the fragment in FragmentPool
-	End      uint32 // End position of the fragment in FragmentPool
-
-	// GraftRollback manages cursor adjustments during wildcard backtracking.
-	// If > 0: specifies the absolute number of bytes to roll back the URL cursor.
-	// If < 0: represents a bitwise NOT index (^GraftRollback) to retrieve the
-	// saved cursor state from cursorCheckpoints.
-	GraftRollback int32
-}
-
-// RouteTree is the primary data structure for route indexing and searching.
-type RouteTree struct {
-	FragmentPool    []byte // Contiguous memory for all path fragments
-	ActionsRegistry []byte // Registry of middleware & service identifiers
-	ActionMetadata  []uint32
-	NodePool        []RouteNode // Flattened node storage for cache locality
-	EdgePool        []Edge      // Flattened edge storage for cache locality
-}
-
-// RouteNode represents a specific point in the finalized routing tree.
-type RouteNode struct {
-	ActionIndex uint32
-	EdgeOffset  uint16
-	EdgeCount   uint16
-	Methods     uint16 // Bitmask of allowed HTTP methods; 0 if not a leaf
-	Tags        uint16
-}
-
-// Search looks up a URL in the tree and returns the matching RouteNode.
-// Returns (node, true) if found, (nil, false) otherwise.
-func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
-	urlLen := int32(len(url))
-	if urlLen == 0 {
-		return nil, false
-	}
-
-	firstChar := url[0]
-	var currentEdgeIdx uint16
-	var cursorCheckpoints [16]int32
-	var checkpointIdx int32
-
-	cursor := int32(0)
-
-	switch {
-	case t.EdgePool[firstChar].TargetID != 0:
-		currentEdgeIdx = uint16(firstChar)
-		cursor++
-	case t.EdgePool[Wildcard].TargetID != 0:
-		currentEdgeIdx = uint16(Wildcard)
-		checkpointIdx++
-	case t.EdgePool[WildcardGreedy].TargetID != 0:
-		currentEdgeIdx = uint16(WildcardGreedy)
-		checkpointIdx++
-	default:
-		return nil, false
-	}
-
-	for {
-		edge := &t.EdgePool[currentEdgeIdx]
-		node := &t.NodePool[edge.TargetID]
-
-		switch t.FragmentPool[edge.Offset] {
-		case Wildcard:
-			if edge.GraftRollback < 0 {
-				if node.EdgeCount == 0 {
-					checkpointIdx = ^edge.GraftRollback
-				} else {
-					childEdge := &t.EdgePool[node.EdgeOffset+node.EdgeCount-1]
-					if t.FragmentPool[childEdge.Offset] != WildcardGreedy || childEdge.GraftRollback != edge.GraftRollback {
-						checkpointIdx = ^edge.GraftRollback
-					}
-				}
-			}
-		case WildcardGreedy:
-			if edge.GraftRollback < 0 {
-				checkpointIdx = ^edge.GraftRollback
-			}
-		default:
-			if cursor == urlLen && node.Methods != 0 {
-				return node, true
-			}
-		}
-
-		matched := false
-
-	INNER:
-		for i := range node.EdgeCount {
-			childEdgeIdx := node.EdgeOffset + i
-			childEdge := &t.EdgePool[childEdgeIdx]
-			childFrag := t.FragmentPool[childEdge.Offset:childEdge.End]
-			childFragLen := int32(len(childFrag))
-
-			switch t.FragmentPool[childEdge.Offset] {
-			case Wildcard, WildcardGreedy:
-				switch {
-				case childEdge.GraftRollback > 0:
-					cursor -= childEdge.GraftRollback
-				case childEdge.GraftRollback < 0:
-					cursor = cursorCheckpoints[^childEdge.GraftRollback]
-				default:
-					cursorCheckpoints[checkpointIdx] = cursor
-					checkpointIdx++
-				}
-				currentEdgeIdx = childEdgeIdx
-				matched = true
-				break INNER
-			default:
-				parentFirstChar := t.FragmentPool[edge.Offset]
-				switch parentFirstChar {
-				case Wildcard:
-					slashIdx := slices.Index(url[cursor:], '/')
-					foundIdx := bytes.Index(url[cursor:], childFrag)
-
-					if foundIdx != -1 && (slashIdx == -1 || foundIdx <= slashIdx) {
-						cursor += (int32(foundIdx) + childFragLen)
-						currentEdgeIdx = childEdgeIdx
-						matched = true
-						break INNER
-					}
-				case WildcardGreedy:
-					foundIdx := bytes.Index(url[cursor:], childFrag)
-
-					if foundIdx != -1 {
-						cursor += (int32(foundIdx) + childFragLen)
-						currentEdgeIdx = childEdgeIdx
-						matched = true
-						break INNER
-					}
-				default:
-					isMatch := urlLen >= cursor+childFragLen && bytes.Equal(url[cursor:cursor+childFragLen], childFrag)
-
-					if isMatch {
-						cursor += childFragLen
-						currentEdgeIdx = childEdgeIdx
-						matched = true
-						break INNER
-					}
-				}
-			}
-		}
-
-		if t.FragmentPool[edge.Offset] < 3 && cursor < urlLen && node.Methods != 0 {
-			return node, true
-		}
-
-		if !matched {
-			return nil, false
-		}
-	}
-}
-
-// RawNode represents the input format for building a RouteTree.
 type RawNode struct {
 	URL         string
 	Service     string
@@ -219,8 +30,6 @@ type buildNode struct {
 	Tags        uint16
 }
 
-// Build constructs a finalized RouteTree from a slice of RawNodes.
-// Logs an error and returns nil if the input is empty.
 func Build(rawNodes []*RawNode) *RouteTree {
 	if len(rawNodes) == 0 {
 		log.Println("[rtree] Build failed: no raw nodes provided")
@@ -305,38 +114,6 @@ func (t *RouteTree) getOrCreateActionID(action string, actionMap map[string]uint
 	return actionID
 }
 
-func (t *RouteTree) GetActionName(index uint32) string {
-	regLen := uint32(len(t.ActionsRegistry))
-	if index >= regLen {
-		return ""
-	}
-
-	curr := index
-	length := uint32(0)
-
-	for {
-		l := t.ActionsRegistry[curr]
-		length += uint32(l)
-		curr++
-		if l < 255 {
-			break
-		}
-	}
-
-	start := curr
-	end := curr + length
-
-	if end > regLen || start > end {
-		return ""
-	}
-
-	b := t.ActionsRegistry[start:end]
-	if len(b) == 0 {
-		return ""
-	}
-	return unsafe.String(&b[0], len(b))
-}
-
 func insert(roots []buildEdge, url []byte, actionIndex uint32, methods uint16, tags uint16) {
 	if len(url) == 0 {
 		return
@@ -375,7 +152,6 @@ func insert(roots []buildEdge, url []byte, actionIndex uint32, methods uint16, t
 	currNode.Tags = tags
 }
 
-// compress merges single-child nodes to form a radix tree.
 func compress(roots []buildEdge) int {
 	totalLen := 0
 	for i := range 256 {
@@ -599,88 +375,5 @@ func lookupMethodToken(m string) (uint16, bool) {
 		return MethodAny, true
 	default:
 		return 0, false
-	}
-}
-
-// ReverseHost reverses the host part of the URL for better indexing (e.g., com.google.www)
-func ReverseHost(url []byte) {
-	slashIdx := bytes.IndexByte(url, '/')
-	if slashIdx <= 1 {
-		if slashIdx == -1 {
-			slashIdx = len(url)
-		}
-		if slashIdx <= 1 {
-			return
-		}
-	}
-
-	host := url[:slashIdx]
-	slices.Reverse(host)
-
-	start := 0
-	for i := 0; i <= len(host); i++ {
-		if i == len(host) || host[i] == '.' {
-			slices.Reverse(host[start:i])
-			start = i + 1
-		}
-	}
-}
-
-func (t *RouteTree) PrintTree() {
-	fmt.Println(".")
-	var validRoots []int
-	for i := range 256 {
-		if t.EdgePool[i].TargetID != 0 {
-			validRoots = append(validRoots, i)
-		}
-	}
-
-	for i, charIdx := range validRoots {
-		isLast := i == len(validRoots)-1
-		t.printEdge(&t.EdgePool[charIdx], "", isLast)
-	}
-}
-
-func (t *RouteTree) printEdge(e *Edge, prefix string, isLast bool) {
-	node := &t.NodePool[e.TargetID]
-	fragmentBytes := bytes.ReplaceAll(t.FragmentPool[e.Offset:e.End], []byte{Wildcard}, []byte{'*'})
-	fragmentBytes = bytes.ReplaceAll(fragmentBytes, []byte{WildcardGreedy}, []byte{'*', '*'})
-	fragment := string(fragmentBytes)
-
-	connector := "├── "
-	if isLast {
-		connector = "└── "
-	}
-
-	info := ""
-	if node.Methods != 0 {
-		if node.Methods == MethodAny {
-			info = fmt.Sprintf("\t--[%d]-ANY", e.TargetID)
-		} else {
-			methods := make([]string, 0)
-			for i, method := range HTTPMethodMap {
-				if node.Methods&method != 0 {
-					methods = append(methods, i)
-				}
-			}
-			info = fmt.Sprintf("\t--[%d]-%s", e.TargetID, strings.Join(methods, ","))
-		}
-	}
-	graft := ""
-	if e.GraftRollback != 0 {
-		graft = fmt.Sprintf("\tg:%d", e.GraftRollback)
-	}
-	fmt.Printf("%s%s%s%s%s\n", prefix, connector, fragment, info, graft)
-
-	newPrefix := prefix
-	if isLast {
-		newPrefix += "    "
-	} else {
-		newPrefix += "│   "
-	}
-
-	for i := range node.EdgeCount {
-		childIsLast := i == node.EdgeCount-1
-		t.printEdge(&t.EdgePool[node.EdgeOffset+uint16(i)], newPrefix, childIsLast)
 	}
 }
