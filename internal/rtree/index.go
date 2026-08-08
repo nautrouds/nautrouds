@@ -44,13 +44,11 @@ var HTTPMethodMap = map[string]uint16{
 	http.MethodPatch:   MethodPatch,
 }
 
-// Edge represents the transition from a parent node to a child node.
+// Edge represents the finalized transition from a parent node to a child node.
 type Edge struct {
-	Fragment *[]byte    // Raw fragment used during tree construction
-	Node     *RouteNode // Temporary pointer used during construction
-	TargetID uint32     // Index of the destination node in NodePool (finalized)
-	Offset   uint32     // Start position of the fragment in FragmentPool
-	End      uint32     // End position of the fragment in FragmentPool
+	TargetID uint32 // Index of the destination node in NodePool
+	Offset   uint32 // Start position of the fragment in FragmentPool
+	End      uint32 // End position of the fragment in FragmentPool
 
 	// GraftRollback manages cursor adjustments during wildcard backtracking.
 	// If > 0: specifies the absolute number of bytes to roll back the URL cursor.
@@ -68,9 +66,8 @@ type RouteTree struct {
 	EdgePool        []Edge      // Flattened edge storage for cache locality
 }
 
-// RouteNode represents a specific point in the routing tree.
+// RouteNode represents a specific point in the finalized routing tree.
 type RouteNode struct {
-	Edges       *[]Edge // Outgoing transitions
 	ActionIndex uint32
 	EdgeOffset  uint16
 	EdgeCount   uint16
@@ -210,6 +207,18 @@ type RawNode struct {
 	Tags        []string
 }
 
+type buildEdge struct {
+	Fragment []byte
+	Node     *buildNode
+}
+
+type buildNode struct {
+	Edges       []buildEdge
+	ActionIndex uint32
+	Methods     uint16
+	Tags        uint16
+}
+
 // Build constructs a finalized RouteTree from a slice of RawNodes.
 // Logs an error and returns nil if the input is empty.
 func Build(rawNodes []*RawNode) *RouteTree {
@@ -220,8 +229,8 @@ func Build(rawNodes []*RawNode) *RouteTree {
 
 	t := &RouteTree{
 		NodePool: make([]RouteNode, 0, len(rawNodes)),
-		EdgePool: make([]Edge, 256),
 	}
+	roots := make([]buildEdge, 256)
 
 	actionMap := make(map[string]uint32)
 	wildcardReg := regexp.MustCompile(`\*{2,}`)
@@ -250,11 +259,11 @@ func Build(rawNodes []*RawNode) *RouteTree {
 
 		t.ActionMetadata = append(t.ActionMetadata, actions...)
 
-		t.insert(url, actionIndex, methodMask, tagMask)
+		insert(roots, url, actionIndex, methodMask, tagMask)
 	}
 
-	totalLen := t.compress()
-	t.finalize(totalLen)
+	totalLen := compress(roots)
+	t.finalize(roots, totalLen)
 
 	log.Printf("[rtree] Successfully built tree with %d nodes", len(t.NodePool))
 	return t
@@ -328,39 +337,35 @@ func (t *RouteTree) GetActionName(index uint32) string {
 	return unsafe.String(&b[0], len(b))
 }
 
-func (t *RouteTree) insert(url []byte, actionIndex uint32, methods uint16, tags uint16) {
+func insert(roots []buildEdge, url []byte, actionIndex uint32, methods uint16, tags uint16) {
 	if len(url) == 0 {
 		return
 	}
 
 	firstChar := url[0]
-	edge := &t.EdgePool[firstChar]
+	edge := &roots[firstChar]
 	if edge.Node == nil {
-		edge.Fragment = &[]byte{firstChar}
-		edge.Node = &RouteNode{
-			Edges: &[]Edge{},
-		}
+		edge.Fragment = []byte{firstChar}
+		edge.Node = &buildNode{}
 	}
 
 	currNode := edge.Node
 	for i := 1; i < len(url); i++ {
 		char := url[i]
-		var nextEdge *Edge
-		for j := range *currNode.Edges {
-			if (*(*currNode.Edges)[j].Fragment)[0] == char {
-				nextEdge = &(*currNode.Edges)[j]
+		var nextEdge *buildEdge
+		for j := range currNode.Edges {
+			if currNode.Edges[j].Fragment[0] == char {
+				nextEdge = &currNode.Edges[j]
 				break
 			}
 		}
 
 		if nextEdge == nil {
-			(*currNode.Edges) = append((*currNode.Edges), Edge{
-				Node: &RouteNode{
-					Edges: &[]Edge{},
-				},
-				Fragment: &[]byte{char},
+			currNode.Edges = append(currNode.Edges, buildEdge{
+				Node:     &buildNode{},
+				Fragment: []byte{char},
 			})
-			nextEdge = &(*currNode.Edges)[len(*currNode.Edges)-1]
+			nextEdge = &currNode.Edges[len(currNode.Edges)-1]
 		}
 		currNode = nextEdge.Node
 	}
@@ -371,52 +376,52 @@ func (t *RouteTree) insert(url []byte, actionIndex uint32, methods uint16, tags 
 }
 
 // compress merges single-child nodes to form a radix tree.
-func (t *RouteTree) compress() int {
+func compress(roots []buildEdge) int {
 	totalLen := 0
 	for i := range 256 {
-		if t.EdgePool[i].Node != nil {
-			totalLen += t.compressNode(t.EdgePool[i].Node)
+		if roots[i].Node != nil {
+			totalLen += compressNode(roots[i].Node)
 		}
 	}
 	return totalLen
 }
 
-func (t *RouteTree) compressEdge(e *Edge) (*Edge, int, bool) {
+func compressEdge(e *buildEdge) (*buildEdge, int, bool) {
 	if e.Node == nil {
 		return nil, 0, false
 	}
 
-	isWildcard := (*e.Fragment)[0] == Wildcard || (*e.Fragment)[0] == WildcardGreedy
-	switch len(*e.Node.Edges) {
+	isWildcard := e.Fragment[0] == Wildcard || e.Fragment[0] == WildcardGreedy
+	switch len(e.Node.Edges) {
 	case 0:
 		if isWildcard {
 			return e, 0, false
 		}
 		return e, 1, true
 	case 1:
-		child, l, ok := t.compressEdge(&(*e.Node.Edges)[0])
+		child, l, ok := compressEdge(&e.Node.Edges[0])
 		if isWildcard {
 			return e, l, false
 		}
 		if ok && e.Node.Methods == 0 {
-			(*e.Fragment) = append(*e.Fragment, (*child.Fragment)...)
+			e.Fragment = append(e.Fragment, child.Fragment...)
 			e.Node = child.Node
 		}
 		return e, (l + 1), true
 	default:
-		l := t.compressNode(e.Node)
+		l := compressNode(e.Node)
 		return e, (l + 1), true
 	}
 }
 
-func (t *RouteTree) compressNode(n *RouteNode) int {
+func compressNode(n *buildNode) int {
 	total := 0
-	for i := range *n.Edges {
-		_, l, _ := t.compressEdge(&(*n.Edges)[i])
+	for i := range n.Edges {
+		_, l, _ := compressEdge(&n.Edges[i])
 		total += l
 	}
 	// Ensure wildcard is always the last edge for searching priority
-	slices.SortFunc(*n.Edges, func(a, b Edge) int {
+	slices.SortFunc(n.Edges, func(a, b buildEdge) int {
 		typeOf := func(f []byte) int {
 			if len(f) == 0 {
 				return 0
@@ -430,28 +435,29 @@ func (t *RouteTree) compressNode(n *RouteNode) int {
 				return 0
 			}
 		}
-		return typeOf(*a.Fragment) - typeOf(*b.Fragment)
+		return typeOf(a.Fragment) - typeOf(b.Fragment)
 	})
 	return total
 }
 
-func (t *RouteTree) finalize(estimatedLen int) {
+func (t *RouteTree) finalize(roots []buildEdge, estimatedLen int) {
 	t.NodePool = make([]RouteNode, 1) // 0 index is reserved/null
+	t.EdgePool = make([]Edge, 256)
 	t.FragmentPool = make([]byte, 2, 2+estimatedLen)
 	t.FragmentPool[0] = WildcardGreedy
 	t.FragmentPool[1] = Wildcard
 
 	var wildcardEdge *Edge
 	for i := range 256 {
-		if t.EdgePool[i].Node != nil {
-			isWildcard := (*t.EdgePool[i].Fragment)[0] == Wildcard || (*t.EdgePool[i].Fragment)[0] == WildcardGreedy
+		if roots[i].Node != nil {
+			isWildcard := roots[i].Fragment[0] == Wildcard || roots[i].Fragment[0] == WildcardGreedy
 
 			var wildcardIdx int32
 			if isWildcard {
 				wildcardIdx++
 			}
 
-			edge := t.flattenNode(&t.EdgePool[i], wildcardEdge, wildcardIdx)
+			edge := t.flattenNode(&roots[i], wildcardEdge, wildcardIdx)
 			t.EdgePool[i] = edge
 
 			if isWildcard {
@@ -465,8 +471,8 @@ func (t *RouteTree) finalize(estimatedLen int) {
 	}
 }
 
-func (t *RouteTree) flattenNode(e *Edge, pw *Edge, pwIdx int32) Edge {
-	firstChar := (*e.Fragment)[0]
+func (t *RouteTree) flattenNode(e *buildEdge, pw *Edge, pwIdx int32) Edge {
+	firstChar := e.Fragment[0]
 	isCurrentWildcard := (firstChar == Wildcard || firstChar == WildcardGreedy)
 
 	var wildcardEdge *Edge
@@ -479,14 +485,14 @@ func (t *RouteTree) flattenNode(e *Edge, pw *Edge, pwIdx int32) Edge {
 			GraftRollback: pw.GraftRollback,
 		}
 		if !isCurrentWildcard {
-			edge.GraftRollback += int32(len(*e.Fragment))
+			edge.GraftRollback += int32(len(e.Fragment))
 		}
 		wildcardEdge = edge
 	}
 
-	edges := make([]Edge, 0, len(*e.Node.Edges)+1)
-	for i := len(*e.Node.Edges) - 1; i >= 0; i-- {
-		edge := t.flattenNode(&(*e.Node.Edges)[i], wildcardEdge, wildcardIndex)
+	edges := make([]Edge, 0, len(e.Node.Edges)+1)
+	for i := len(e.Node.Edges) - 1; i >= 0; i-- {
+		edge := t.flattenNode(&e.Node.Edges[i], wildcardEdge, wildcardIndex)
 
 		switch t.FragmentPool[edge.Offset] {
 		case Wildcard, WildcardGreedy:
@@ -519,11 +525,11 @@ func (t *RouteTree) flattenNode(e *Edge, pw *Edge, pwIdx int32) Edge {
 	var offset uint32
 	var end uint32
 	if isCurrentWildcard {
-		offset = uint32((*e.Fragment)[0]) - 1
+		offset = uint32(e.Fragment[0]) - 1
 		end = offset + 1
 	} else {
 		offset = uint32(len(t.FragmentPool))
-		t.FragmentPool = append(t.FragmentPool, (*e.Fragment)...)
+		t.FragmentPool = append(t.FragmentPool, e.Fragment...)
 		end = uint32(len(t.FragmentPool))
 	}
 
