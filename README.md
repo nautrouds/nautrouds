@@ -166,7 +166,7 @@ Route and middleware directives can be templated from request data (`{header.X}`
 - **Risk**: a client can effectively choose which service or built-in runs if a directive name/target is templated from unvalidated request data.
 - **Guidance**: prefer interpolating only argument *values* (e.g. a comparison target), not directive names or service names, unless every value the tag can take has been validated.
 
-#### 5. `-token` is not an auth mechanism
+#### 5. `--instance-id` is not an auth mechanism
 
 It only namespaces entrypoint socket filenames so multiple instances sharing an `EntrypointDir` don't collide. Access control for entrypoint sockets is entirely a function of filesystem permissions on `EntrypointDir`.
 

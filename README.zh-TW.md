@@ -165,7 +165,7 @@ Nautrouds 是純 UDS（Unix Domain Socket）內部 proxy：它假設任何能連
 - **風險**：若指令名稱/目標是從未經驗證的請求資料樣板化出來的，客戶端等於能自行決定要路由到哪個服務、或執行哪個 built-in。
 - **建議**：除非已驗證過該 tag 可能取到的所有值，否則應只在參數**值**（例如比對目標）中使用 interpolation，而不是指令名稱或 service name。
 
-#### 5. `-token` 不是驗證機制
+#### 5. `--instance-id` 不是驗證機制
 
 它只是替 entrypoint socket 檔名加上命名空間，讓多個共用同一個 `EntrypointDir` 的實例不會互相衝突。entrypoint socket 的存取控制完全取決於 `EntrypointDir` 的檔案系統權限。
 
