@@ -6,6 +6,8 @@ WORKDIR /app
 # Install build dependencies
 RUN apk add --no-cache git
 
+ARG VERSION=""
+
 # Copy dependency manifests
 COPY go.mod go.sum ./
 RUN go mod download
@@ -14,8 +16,8 @@ RUN go mod download
 COPY . .
 
 # Build Nautrouds Core and Compiler
-RUN go build -o /bin/nautrouds ./cmd/core
-RUN go build -o /bin/ntuc ./cmd/ntuc
+RUN go build -ldflags "-X nautrouds/internal/version.Version=${VERSION}" -o /bin/nautrouds ./cmd/core
+RUN go build -ldflags "-X nautrouds/internal/version.Version=${VERSION}" -o /bin/ntuc ./cmd/ntuc
 
 # --- Final Stage ---
 FROM alpine:3.21

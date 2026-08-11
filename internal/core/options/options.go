@@ -3,6 +3,7 @@ package options
 import (
 	"flag"
 	"fmt"
+	"nautrouds/internal/version"
 	"os"
 	"regexp"
 	"strconv"
@@ -34,8 +35,14 @@ func Load() *Options {
 	tokenPtr := EnvString("token", "NAUTROUDS_TOKEN", "", "")
 	metricsPathPtr := EnvString("metrics-socket", "NAUTROUDS_METRICS_SOCKET", "", "Metrics collector socket path (relative to services dir)")
 	metricsSockModePtr := EnvString("metrics-socket-mode", "NAUTROUDS_METRICS_SOCKET_MODE", "0666", "Permission mode for the metrics collector socket (octal, e.g. 0660)")
+	showVersionPtr := flag.Bool("version", false, "Print version and exit")
 
 	flag.Parse()
+
+	if *showVersionPtr {
+		fmt.Println(version.Get())
+		os.Exit(0)
+	}
 
 	entrypointCount, err := strconv.Atoi(*entrypointCountPtr)
 	if err != nil {

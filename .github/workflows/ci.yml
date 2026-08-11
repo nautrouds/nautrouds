@@ -131,6 +131,8 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta-nautrouds.outputs.tags }}
           labels: ${{ steps.meta-nautrouds.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

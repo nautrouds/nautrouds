@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/gob"
 	"flag"
+	"fmt"
 	"log"
 	"nautrouds/internal/compiler"
+	"nautrouds/internal/version"
 	"os"
 	"path/filepath"
 )
@@ -14,8 +16,14 @@ func main() {
 	output := flag.String("o", "nautrouds.ntu", "Output compiled route file")
 	check := flag.Bool("check", false, "")
 	print := flag.Bool("print", false, "")
+	showVersion := flag.Bool("version", false, "Print version and exit")
 
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version.Get())
+		return
+	}
 
 	var reader *os.File
 	var err error
