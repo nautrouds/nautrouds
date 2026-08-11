@@ -21,7 +21,7 @@ The `nautrouds-core` is the runtime engine. It manages the proxy, service regist
 | `--metrics-socket` | `NAUTROUDS_METRICS_SOCKET` | *(empty, resolves to `metrics.sock`)* | Metrics collector socket path, relative to `--services`. Leaving it empty uses `metrics.sock`; set to `-` to disable. |
 | `--metrics-socket-mode` | `NAUTROUDS_METRICS_SOCKET_MODE` | `0666` | Permission mode (octal) applied to the metrics collector socket. |
 | `--log-level` | `NAUTROUDS_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`, `dpanic`, `panic`, `fatal`). |
-| `--instance-id` | `NAUTROUDS_INSTANCE_ID` | *(empty)* | Namespaces entrypoint socket filenames so multiple instances sharing an `--entrypoint-dir` don't collide. Not an auth mechanism — see the [Security Considerations](../README.md#security-considerations) section. |
+| `--instance-id` | `NAUTROUDS_INSTANCE_ID` | *(empty)* | Namespaces entrypoint socket filenames so multiple instances sharing an `--entrypoint-dir` don't collide. See the [Security Considerations](../README.md#security-considerations) section. |
 
 ### Hot-Reloading
 Nautrouds automatically tracks changes to your configuration. 
