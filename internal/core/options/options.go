@@ -18,7 +18,7 @@ type Options struct {
 	EntrypointDirMode os.FileMode
 	EntrypointCount   int
 	LogLevel          string
-	Token             string
+	InstanceID        string
 	MetricsPath       string
 	MetricsSockMode   os.FileMode
 }
@@ -32,7 +32,7 @@ func Load() *Options {
 	entrypointDirModePtr := EnvString("entrypoint-dir-mode", "NAUTROUDS_ENTRYPOINT_DIR_MODE", "0755", "Permission mode for the entrypoint directory (octal)")
 	entrypointCountPtr := EnvString("entrypoint-count", "NAUTROUDS_ENTRYPOINT_COUNT", "1", "Number of entrypoint instances to spawn")
 	logLevelPtr := EnvString("log-level", "NAUTROUDS_LOG_LEVEL", "info", "Log level (debug, info, warn, error, dpanic, panic, fatal)")
-	tokenPtr := EnvString("token", "NAUTROUDS_TOKEN", "", "")
+	instanceIDPtr := EnvString("instance-id", "NAUTROUDS_INSTANCE_ID", "", "Identifier appended to entrypoint socket names to distinguish this instance")
 	metricsPathPtr := EnvString("metrics-socket", "NAUTROUDS_METRICS_SOCKET", "", "Metrics collector socket path (relative to services dir)")
 	metricsSockModePtr := EnvString("metrics-socket-mode", "NAUTROUDS_METRICS_SOCKET_MODE", "0666", "Permission mode for the metrics collector socket (octal, e.g. 0660)")
 	showVersionPtr := flag.Bool("version", false, "Print version and exit")
@@ -64,7 +64,7 @@ func Load() *Options {
 		EntrypointDirMode: entrypointDirMode,
 		EntrypointCount:   entrypointCount,
 		LogLevel:          *logLevelPtr,
-		Token:             reg.ReplaceAllString(*tokenPtr, "_"),
+		InstanceID:        reg.ReplaceAllString(*instanceIDPtr, "_"),
 		MetricsPath:       *metricsPathPtr,
 		MetricsSockMode:   metricsSockMode,
 	}

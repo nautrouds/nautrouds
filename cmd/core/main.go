@@ -141,13 +141,13 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 }
 
 func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, opts *options.Options) error {
-	hasToken := len(opts.Token) > 0
-	token := "-"
-	if hasToken {
-		token = fmt.Sprintf("-%s-", opts.Token)
+	hasInstanceID := len(opts.InstanceID) > 0
+	instanceID := "-"
+	if hasInstanceID {
+		instanceID = fmt.Sprintf("-%s-", opts.InstanceID)
 	}
 
-	err := cleanLegacySockets(opts.EntrypointDir, token)
+	err := cleanLegacySockets(opts.EntrypointDir, instanceID)
 	if err != nil {
 		return fmt.Errorf("failed to clean legacy sockets: %w", err)
 	}
@@ -155,7 +155,7 @@ func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, o
 	socketPathMap := make(map[string]context.CancelFunc, opts.EntrypointCount)
 	offset := 0
 	for i := 0; i < opts.EntrypointCount; {
-		socketName := fmt.Sprintf("nautrouds%s%d.sock", token, i+offset)
+		socketName := fmt.Sprintf("nautrouds%s%d.sock", instanceID, i+offset)
 		socketPath := filepath.Join(opts.EntrypointDir, socketName)
 
 		if _, err := os.Stat(socketPath); err == nil {
@@ -195,14 +195,14 @@ func createEntrypoints(lc *lifecycle.LifecycleManager, manager *proxy.Manager, o
 	return nil
 }
 
-func cleanLegacySockets(dir string, token string) error {
+func cleanLegacySockets(dir string, instanceID string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".sock") || !strings.Contains(name, token) {
+		if entry.IsDir() || !strings.HasSuffix(name, ".sock") || !strings.Contains(name, instanceID) {
 			continue
 		}
 		filePath := filepath.Join(dir, name)
