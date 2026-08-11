@@ -90,12 +90,16 @@ jobs:
             CHANGELOG_LINE="**Full Changelog**: https://github.com/${REPO}/commits/${CUR_TAG}"
           fi
 
+          IMAGE_NAME="${REPO#*/}"
+          GHCR_LINE="**Container Image**: https://github.com/${REPO}/pkgs/container/${IMAGE_NAME}"
+
           {
             echo "body<<EOF"
             echo "## What's Changed"
             git log -1 --pretty=%B "$GITHUB_SHA"
             echo ""
             echo "$CHANGELOG_LINE"
+            echo "$GHCR_LINE"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
