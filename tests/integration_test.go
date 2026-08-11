@@ -89,7 +89,7 @@ GET */_metrics $metrics
 	}
 
 	ntucBin := filepath.Join(tempDir, "ntuc"+binExt)
-	cmdBuildNtuc := exec.Command(goBin, "build", "-o", ntucBin, "./cmd/ntuc/main.go")
+	cmdBuildNtuc := exec.Command(goBin, "build", "-o", ntucBin, "./cmd/ntuc")
 
 	cmdBuildNtuc.Dir = filepath.Dir(wd)
 	if out, err := cmdBuildNtuc.CombinedOutput(); err != nil {
@@ -97,7 +97,7 @@ GET */_metrics $metrics
 	}
 
 	nautroudsBin := filepath.Join(tempDir, "nautrouds"+binExt)
-	cmdBuildCore := exec.Command(goBin, "build", "-o", nautroudsBin, "./cmd/core/main.go")
+	cmdBuildCore := exec.Command(goBin, "build", "-o", nautroudsBin, "./cmd/core")
 	cmdBuildCore.Dir = filepath.Dir(wd)
 	if out, err := cmdBuildCore.CombinedOutput(); err != nil {
 		t.Fatalf("failed to build nautrouds: %v\nOutput: %s", err, string(out))
