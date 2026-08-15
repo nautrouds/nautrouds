@@ -1,6 +1,7 @@
 package virtualservices
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"nautrouds/internal/core/builtins"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed welcome.html
+var welcomeHTML []byte
 
 // --- Internal Virtual Services ---
 
@@ -76,6 +80,17 @@ func ERR(args ...string) (http.HandlerFunc, error) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(code)
 		w.Write([]byte(msg))
+	}, nil
+}
+
+func Welcome(args ...string) (http.HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 0, 0); err != nil {
+		return nil, fmt.Errorf("$welcome: %w", err)
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write(welcomeHTML)
 	}, nil
 }
 
@@ -161,6 +176,7 @@ var Registry = map[string]builtins.Factory{
 	"$ok":       OK,
 	"$err":      ERR,
 	"$health":   OK,
+	"$welcome":  Welcome,
 	"$metrics":  Metrics,
 	"$redirect": Redirect,
 	"$services": nil, // Runtime resolution

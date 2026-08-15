@@ -303,6 +303,26 @@ func TestPing_Down(t *testing.T) {
 	}
 }
 
+func TestWelcome(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	h, err := Welcome()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	h(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Errorf("expected text/html content-type, got %q", ct)
+	}
+	if !strings.Contains(w.Body.String(), "Nautrouds") {
+		t.Errorf("expected body to contain Nautrouds, got %q", w.Body.String())
+	}
+}
+
 func TestMetrics(t *testing.T) {
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	w := httptest.NewRecorder()
@@ -328,6 +348,7 @@ func TestArgCount_Errors(t *testing.T) {
 		{"Echo/TooMany", func() error { _, err := Echo("x"); return err }},
 		{"OK/TooMany", func() error { _, err := OK("a", "b"); return err }},
 		{"ERR/TooMany", func() error { _, err := ERR("a", "b", "c"); return err }},
+		{"Welcome/TooMany", func() error { _, err := Welcome("x"); return err }},
 		{"Metrics/TooMany", func() error { _, err := Metrics("x"); return err }},
 		{"Redirect/TooFew", func() error { _, err := Redirect("301"); return err }},
 		{"Redirect/TooMany", func() error { _, err := Redirect("301", "/new", "extra"); return err }},
@@ -352,6 +373,7 @@ func TestIsValid(t *testing.T) {
 		{"$ok", true, ""},
 		{"$ok(hello)", true, ""},
 		{"$err(404)", true, ""},
+		{"$welcome", true, ""},
 		{"$metrics", true, ""},
 		{"$redirect(301, /new)", true, ""},
 		{"$json", true, ""},
