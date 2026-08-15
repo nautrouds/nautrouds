@@ -55,6 +55,16 @@ func NewConfigWatcher(configPath, ntucPath string, manager *proxy.Manager, defau
 func (cw *ConfigWatcher) LoadInitial() error {
 	if cw.defaultWelcome {
 		if _, err := os.Stat(cw.fullConfigPath); os.IsNotExist(err) {
+			if stdinIsPiped() {
+				logs.Out.Info("Config file not found, loading compiled config piped via stdin")
+				gen, err := loadFromStdin()
+				if err != nil {
+					return err
+				}
+				cw.manager.UpdateGeneration(gen)
+				return nil
+			}
+
 			logs.Out.Warn("Config file not found, falling back to built-in welcome route", zap.String("path", cw.fullConfigPath))
 			gen, genErr := welcomeGeneration()
 			if genErr != nil {
@@ -80,6 +90,25 @@ func (cw *ConfigWatcher) LoadInitial() error {
 
 	cw.manager.UpdateGeneration(gen)
 	return nil
+}
+
+// Unguarded os.Stdin reads block waiting for input on an interactive TTY, hanging startup.
+func stdinIsPiped() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice == 0
+}
+
+func loadFromStdin() (*proxy.Generation, error) {
+	var gen proxy.Generation
+	dec := gob.NewDecoder(os.Stdin)
+	if err := dec.Decode(&gen.Tree); err != nil {
+		metrics.Global.ConfigErrorsTotal.WithLabelValues("decode").Inc()
+		return nil, fmt.Errorf("failed to decode config piped via stdin: %w", err)
+	}
+	return &gen, nil
 }
 
 func welcomeGeneration() (*proxy.Generation, error) {
