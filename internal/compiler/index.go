@@ -152,7 +152,7 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 		for _, url := range urls {
 			rawNodes = append(rawNodes, &rtree.RawNode{
 				Methods:     rule.Methods,
-				URL:         url,
+				URL:         normalizeURL(url),
 				Service:     rule.Service,
 				Middlewares: rule.Middlewares,
 				Tags:        rule.Tags,
