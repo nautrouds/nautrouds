@@ -21,6 +21,7 @@ type Options struct {
 	InstanceID        string
 	MetricsPath       string
 	MetricsSockMode   os.FileMode
+	DefaultWelcome    bool
 }
 
 func Load() *Options {
@@ -35,6 +36,7 @@ func Load() *Options {
 	instanceIDPtr := EnvString("instance-id", "NAUTROUDS_INSTANCE_ID", "", "Identifier appended to entrypoint socket names to distinguish this instance")
 	metricsPathPtr := EnvString("metrics-socket", "NAUTROUDS_METRICS_SOCKET", "", "Metrics collector socket path (relative to services dir)")
 	metricsSockModePtr := EnvString("metrics-socket-mode", "NAUTROUDS_METRICS_SOCKET_MODE", "0666", "Permission mode for the metrics collector socket (octal, e.g. 0660)")
+	defaultWelcomePtr := EnvBool("default-welcome", "NAUTROUDS_DEFAULT_WELCOME", true, "Serve a built-in welcome page for all requests when the config file is missing, instead of failing to start")
 	showVersionPtr := flag.Bool("version", false, "Print version and exit")
 
 	flag.Parse()
@@ -67,6 +69,7 @@ func Load() *Options {
 		InstanceID:        reg.ReplaceAllString(*instanceIDPtr, "_"),
 		MetricsPath:       *metricsPathPtr,
 		MetricsSockMode:   metricsSockMode,
+		DefaultWelcome:    *defaultWelcomePtr,
 	}
 }
 
@@ -81,6 +84,16 @@ func mustParseFileMode(flagName, s string) os.FileMode {
 
 func EnvString(name, envKey, fallback, usage string) *string {
 	return flag.String(name, getEnv(envKey, fallback), usage)
+}
+
+func EnvBool(name, envKey string, fallback bool, usage string) *bool {
+	value := fallback
+	if s, ok := os.LookupEnv(envKey); ok {
+		if parsed, err := strconv.ParseBool(s); err == nil {
+			value = parsed
+		}
+	}
+	return flag.Bool(name, value, usage)
 }
 
 func getEnv(key, fallback string) string {

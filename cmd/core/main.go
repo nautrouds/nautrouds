@@ -89,7 +89,7 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 	manager := proxy.NewManager(reg, mmfgHub)
 
 	// Initialize Config Watcher (Handles load & hot-reload)
-	cw, err := configwatcher.NewConfigWatcher(opts.ConfigPath, opts.NtucPath, manager)
+	cw, err := configwatcher.NewConfigWatcher(opts.ConfigPath, opts.NtucPath, manager, opts.DefaultWelcome)
 	if err != nil {
 		return fmt.Errorf("config watcher initialization failed: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
+	"nautrouds/internal/compiler"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/proxy"
@@ -24,10 +25,11 @@ type ConfigWatcher struct {
 	ntucPath        string
 	manager         *proxy.Manager
 	isSource        bool
+	defaultWelcome  bool
 	fw              *fsnotify.Watcher
 }
 
-func NewConfigWatcher(configPath, ntucPath string, manager *proxy.Manager) (*ConfigWatcher, error) {
+func NewConfigWatcher(configPath, ntucPath string, manager *proxy.Manager, defaultWelcome bool) (*ConfigWatcher, error) {
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -45,11 +47,24 @@ func NewConfigWatcher(configPath, ntucPath string, manager *proxy.Manager) (*Con
 		ntucPath:        ntucPath,
 		manager:         manager,
 		isSource:        !strings.HasSuffix(configPath, ".ntu"),
+		defaultWelcome:  defaultWelcome,
 		fw:              fw,
 	}, nil
 }
 
 func (cw *ConfigWatcher) LoadInitial() error {
+	if cw.defaultWelcome {
+		if _, err := os.Stat(cw.fullConfigPath); os.IsNotExist(err) {
+			logs.Out.Warn("Config file not found, falling back to built-in welcome route", zap.String("path", cw.fullConfigPath))
+			gen, genErr := welcomeGeneration()
+			if genErr != nil {
+				return genErr
+			}
+			cw.manager.UpdateGeneration(gen)
+			return nil
+		}
+	}
+
 	var gen *proxy.Generation
 	var err error
 
@@ -65,6 +80,14 @@ func (cw *ConfigWatcher) LoadInitial() error {
 
 	cw.manager.UpdateGeneration(gen)
 	return nil
+}
+
+func welcomeGeneration() (*proxy.Generation, error) {
+	tree, err := compiler.ParseString("$welcome")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build default welcome route: %w", err)
+	}
+	return &proxy.Generation{Tree: *tree}, nil
 }
 
 func (cw *ConfigWatcher) Start() error {
