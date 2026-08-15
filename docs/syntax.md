@@ -109,6 +109,7 @@ Virtual services are functional endpoints provided by the Nautrouds core.
 | `$ok` | `(msg?)` | Returns 200 OK with optional body. |
 | `$err` | `(code, msg?)` | Returns custom error code and message. |
 | `$health` | - | Synonym for `$ok`. |
+| `$welcome` | - | Returns a simple HTML welcome page with an Ntufile quick-start and doc links. |
 | `$metrics` | - | Exposes internal Prometheus metrics. |
 | `$redirect` | `(code, url)` | Performs a redirect. |
 | `$json` | `(body?)` | Returns custom JSON response. |
