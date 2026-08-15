@@ -22,11 +22,13 @@ The `nautrouds-core` is the runtime engine. It manages the proxy, service regist
 | `--metrics-socket-mode` | `NAUTROUDS_METRICS_SOCKET_MODE` | `0666` | Permission mode (octal) applied to the metrics collector socket. |
 | `--log-level` | `NAUTROUDS_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`, `dpanic`, `panic`, `fatal`). |
 | `--instance-id` | `NAUTROUDS_INSTANCE_ID` | *(empty)* | Namespaces entrypoint socket filenames so multiple instances sharing an `--entrypoint-dir` don't collide. See the [Security Considerations](../README.md#security-considerations) section. |
+| `--default-welcome` | `NAUTROUDS_DEFAULT_WELCOME` | `true` | If `--config` does not exist at startup, serve a built-in `$welcome` catch-all instead of failing to start. Only triggers when the config file is missing entirely — syntax errors and other load failures still fail fast. |
 
 ### Hot-Reloading
 Nautrouds automatically tracks changes to your configuration. 
 - If `--config` points to an `Ntufile` (source), it uses the specified `ntuc` binary to re-compile on every save.
 - If it points to a `.ntu` file (binary), it simply reloads the state.
+- If `--config` was missing at startup and `--default-welcome` served the fallback route, creating the file afterward triggers a normal reload like any other config change.
 
 ---
 
