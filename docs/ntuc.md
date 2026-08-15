@@ -30,6 +30,17 @@ Nautrouds automatically tracks changes to your configuration.
 - If it points to a `.ntu` file (binary), it simply reloads the state.
 - If `--config` was missing at startup and `--default-welcome` served the fallback route, creating the file afterward triggers a normal reload like any other config change.
 
+### Startup Fallback Chain (`--default-welcome`)
+When `--config` doesn't exist at startup and `--default-welcome` is enabled, Nautrouds tries, in order:
+1. **Piped stdin**: if stdin is redirected (not an interactive terminal), Nautrouds reads a pre-compiled route table from it. This is how a compiled config can be handed to Nautrouds without ever touching disk:
+   ```bash
+   curl -fsSL https://example.com/Ntufile | ntuc -i - -o - | ./bin/nautrouds
+   ```
+   Nautrouds does not compile stdin itself — it expects the already-compiled output of `ntuc -o -`. If stdin is piped but fails to decode, startup fails immediately rather than falling through to step 2 (a broken pipeline shouldn't be silently masked by a working-looking welcome page).
+2. **Built-in welcome route**: if stdin is not piped (an interactive terminal, or none at all), Nautrouds falls back to the `$welcome` catch-all described above.
+
+Neither step applies hot-reload: stdin is a one-shot stream, and there's no config file to watch for the welcome fallback.
+
 ---
 
 ## Compiler (ntuc)
