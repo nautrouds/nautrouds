@@ -136,7 +136,7 @@ func (m *Manager) runMiddlewareChain(s *servingState) bool {
 					approved = true
 					break
 				}
-				if mwErr == forwarder.ErrNodeUnavailable {
+				if mwErr == forwarder.ErrNodeUnavailable || mwErr == forwarder.ErrNodeFailed {
 					continue
 				}
 				if errors.Is(mwErr, forwarder.ErrServerError) {

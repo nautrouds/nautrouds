@@ -25,6 +25,8 @@ type upstreamStartKey struct{}
 
 var (
 	ErrNodeUnavailable   = errors.New("Node Unavailable")
+	ErrNodeFailed        = errors.New("Node Failed")
+	ErrUpstreamFailed    = errors.New("Upstream Request Failed")
 	ErrMiddlewareBlocked = errors.New("Middleware Blocked")
 	ErrServerError       = errors.New("Server Error")
 	ErrBodyTooLarge      = errors.New("Body Too Large")
@@ -131,7 +133,11 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 			if isFailed.CompareAndSwap(false, true) {
 				onFailure <- FailureForwarder{SocketPath: nodePath, Error: opErr.Err}
 			}
-			err = ErrNodeUnavailable
+			if opErr.Op == "dial" {
+				err = ErrNodeUnavailable
+			} else {
+				err = ErrUpstreamFailed
+			}
 		}
 
 		var maxBytesErr *http.MaxBytesError
@@ -173,7 +179,7 @@ func createReverseProxy(serviceName, nodePath string, transport http.RoundTrippe
 // wrapped ErrServerError: mmfg header read/write failed, wrapped error carries the cause.
 func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, path string, allowedHeaders []string) error {
 	if f.isFailed.Load() {
-		return ErrNodeUnavailable
+		return ErrNodeFailed
 	}
 
 	f.wg.Add(1)
@@ -258,7 +264,7 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 
 func (f *Forwarder) Forward(w http.ResponseWriter, r *http.Request) error {
 	if f.isFailed.Load() {
-		return ErrNodeUnavailable
+		return ErrNodeFailed
 	}
 	f.wg.Add(1)
 	defer f.wg.Done()
