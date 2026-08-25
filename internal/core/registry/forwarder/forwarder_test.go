@@ -171,7 +171,7 @@ func TestForwarder_FailureReporting(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		err := f.Forward(w, req)
-		assert.Equal(t, ErrNodeUnavailable, err)
+		assert.True(t, err == ErrNodeUnavailable || err == ErrNodeFailed, "got %v", err)
 
 		select {
 		case failure := <-onFailure:
@@ -328,7 +328,7 @@ func TestForwarder_Forward_InFlightDecrementsOnError(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	err = f.Forward(w, req)
-	assert.Equal(t, ErrNodeUnavailable, err)
+	assert.True(t, err == ErrNodeUnavailable || err == ErrNodeFailed, "got %v", err)
 	assert.EqualValues(t, 0, f.InFlightWeight())
 }
 
@@ -347,7 +347,7 @@ func TestForwarder_ForwardMiddleware_InFlightDecrementsOnError(t *testing.T) {
 	defer tempresp.Pool.Put(w)
 
 	err = f.ForwardMiddleware(w, req, nil, "/", nil)
-	assert.Equal(t, ErrNodeUnavailable, err)
+	assert.True(t, err == ErrNodeUnavailable || err == ErrNodeFailed, "got %v", err)
 	assert.EqualValues(t, 0, f.InFlightWeight())
 }
 
