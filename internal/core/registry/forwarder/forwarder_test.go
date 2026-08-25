@@ -2,6 +2,7 @@ package forwarder
 
 import (
 	"context"
+	"errors"
 	"io"
 	"nautrouds/internal/core/tempresp"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -384,35 +386,48 @@ func TestForwarder_ForwardMiddleware_ReturnsErrNodeFailedWhenAlreadyFailed(t *te
 	assert.Equal(t, ErrNodeFailed, err)
 }
 
-func TestForwarder_Forward_NonDialErrorIsUpstreamFailed(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-upstream-failed-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "test.sock")
-
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				return
-			}
-			conn.Close()
-		}
-	}()
-	defer l.Close()
-
+func TestCreateReverseProxy_ErrorHandler_DialOpErrorIsNodeUnavailable(t *testing.T) {
 	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
+	var isFailed atomic.Bool
+	rp := createReverseProxy("test-service", "/tmp/test.sock", http.DefaultTransport, onFailure, &isFailed)
 
-	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	w := httptest.NewRecorder()
+	var capturedErr error
+	ctx := context.WithValue(context.Background(), proxyErrorKey{}, &capturedErr)
+	req := httptest.NewRequest("GET", "http://example.com/", nil).WithContext(ctx)
 
-	err = f.Forward(w, req)
-	assert.ErrorIs(t, err, ErrUpstreamFailed)
-	assert.True(t, f.isFailed.Load())
+	rp.ErrorHandler(httptest.NewRecorder(), req, &net.OpError{Op: "dial", Net: "unix", Err: errors.New("no such file or directory")})
+
+	assert.ErrorIs(t, capturedErr, ErrNodeUnavailable)
+	assert.True(t, isFailed.Load())
+
+	select {
+	case failure := <-onFailure:
+		assert.Equal(t, "/tmp/test.sock", failure.SocketPath)
+	default:
+		t.Fatal("expected a failure to be reported")
+	}
+}
+
+func TestCreateReverseProxy_ErrorHandler_NonDialOpErrorIsUpstreamFailed(t *testing.T) {
+	onFailure := make(chan FailureForwarder, 1)
+	var isFailed atomic.Bool
+	rp := createReverseProxy("test-service", "/tmp/test.sock", http.DefaultTransport, onFailure, &isFailed)
+
+	var capturedErr error
+	ctx := context.WithValue(context.Background(), proxyErrorKey{}, &capturedErr)
+	req := httptest.NewRequest("GET", "http://example.com/", nil).WithContext(ctx)
+
+	rp.ErrorHandler(httptest.NewRecorder(), req, &net.OpError{Op: "write", Net: "unix", Err: errors.New("broken pipe")})
+
+	assert.ErrorIs(t, capturedErr, ErrUpstreamFailed)
+	assert.True(t, isFailed.Load())
+
+	select {
+	case failure := <-onFailure:
+		assert.Equal(t, "/tmp/test.sock", failure.SocketPath)
+	default:
+		t.Fatal("expected a failure to be reported")
+	}
 }
 
 func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
