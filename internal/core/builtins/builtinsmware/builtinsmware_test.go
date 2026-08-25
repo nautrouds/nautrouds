@@ -12,6 +12,7 @@ import (
 
 	"nautrouds/internal/core/builtins/builtinsmware"
 	"nautrouds/internal/core/mmfg"
+	"nautrouds/internal/core/routeoptions"
 	"nautrouds/internal/core/tempresp"
 
 	"github.com/stretchr/testify/assert"
@@ -440,6 +441,33 @@ func TestBodySizeLimit_TruncatesOversizedChunkedBody(t *testing.T) {
 
 	_, err = io.ReadAll(req.Body)
 	assert.Error(t, err)
+}
+
+func TestRetryLimit_SetsOptionOnOptions(t *testing.T) {
+	fn, err := builtinsmware.RetryLimit("3")
+	require.NoError(t, err)
+	w, _ := newWriter()
+	req := httptest.NewRequest("GET", "/", nil)
+	o := &routeoptions.Options{}
+	fn(w, req, nil, o)
+
+	assert.True(t, o.HasRetryLimit)
+	assert.EqualValues(t, 3, o.RetryLimit)
+}
+
+func TestRetryLimit_InvalidArgCount(t *testing.T) {
+	_, err := builtinsmware.RetryLimit()
+	assert.Error(t, err)
+}
+
+func TestRetryLimit_InvalidLimit(t *testing.T) {
+	tests := []string{"", "-1", "not-a-number", "1.5"}
+	for _, arg := range tests {
+		t.Run(arg, func(t *testing.T) {
+			_, err := builtinsmware.RetryLimit(arg)
+			assert.Error(t, err)
+		})
+	}
 }
 
 func TestArgCount_Errors(t *testing.T) {
