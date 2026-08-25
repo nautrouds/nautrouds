@@ -349,6 +349,72 @@ func TestForwarder_ForwardMiddleware_InFlightDecrementsOnError(t *testing.T) {
 	assert.EqualValues(t, 0, f.InFlightWeight())
 }
 
+func TestForwarder_Forward_ReturnsErrNodeFailedWhenAlreadyFailed(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-node-failed-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "test.sock")
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, 1, onFailure)
+	f.isFailed.Store(true)
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	w := httptest.NewRecorder()
+
+	err = f.Forward(w, req)
+	assert.Equal(t, ErrNodeFailed, err)
+}
+
+func TestForwarder_ForwardMiddleware_ReturnsErrNodeFailedWhenAlreadyFailed(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-mw-node-failed-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "mw.sock")
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, 1, onFailure)
+	f.isFailed.Store(true)
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+	defer tempresp.Pool.Put(w)
+
+	err = f.ForwardMiddleware(w, req, nil, "/", nil)
+	assert.Equal(t, ErrNodeFailed, err)
+}
+
+func TestForwarder_Forward_NonDialErrorIsUpstreamFailed(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-upstream-failed-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	socketPath := filepath.Join(tmpDir, "test.sock")
+
+	l, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+	defer l.Close()
+
+	onFailure := make(chan FailureForwarder, 1)
+	f := New("test-service", socketPath, 1, onFailure)
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	w := httptest.NewRecorder()
+
+	err = f.Forward(w, req)
+	assert.ErrorIs(t, err, ErrUpstreamFailed)
+	assert.True(t, f.isFailed.Load())
+}
+
 func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
 	const n = 5
 
