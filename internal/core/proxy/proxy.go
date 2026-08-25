@@ -6,6 +6,7 @@ import (
 	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/mmfg"
 	"nautrouds/internal/core/registry"
+	"nautrouds/internal/core/routeoptions"
 	"nautrouds/internal/core/tempresp"
 	"nautrouds/internal/interpolate"
 	"nautrouds/internal/rtree"
@@ -56,6 +57,7 @@ type servingState struct {
 
 	tempResp     *tempresp.ResponseWriter
 	interpolator *interpolate.RequestContext
+	options      *routeoptions.Options
 
 	routePattern     string
 	finalServiceName string
@@ -72,15 +74,19 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	trackedWriter := newTrackedResponseWriter(w)
 	defer trackedWriter.release()
 
+	options := routeoptions.GetOptions()
+	defer routeoptions.PutOptions(options)
+
 	ctx, externalNs := metrics.NewOwnTimeContext(r.Context())
 	r = r.WithContext(ctx)
 
 	state := m.State.Load()
 	s := &servingState{
-		w:     trackedWriter,
-		r:     r,
-		state: state,
-		tree:  &state.Tree,
+		w:       trackedWriter,
+		r:       r,
+		state:   state,
+		tree:    &state.Tree,
+		options: options,
 	}
 
 	defer func() {

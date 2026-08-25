@@ -8,6 +8,7 @@ import (
 	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/mmfg"
+	"nautrouds/internal/core/routeoptions"
 	"nautrouds/internal/core/tempresp"
 	"net"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 )
 
 type MiddlewareFactory func(args ...string) (HandlerFunc, error)
-type HandlerFunc = func(*tempresp.ResponseWriter, *http.Request, mmfg.Request)
+type HandlerFunc = func(*tempresp.ResponseWriter, *http.Request, mmfg.Request, *routeoptions.Options)
 
 // --- Header Operations ---
 
@@ -28,7 +29,7 @@ func SetHeader(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$SetHeader: %w", err)
 	}
 	key, val := args[0], args[1]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		if mr != nil {
 			if err := mr.UpdateHeader(key, val); err != nil {
 				replyMmfgError(w, "Failed to update mmfg request header", err)
@@ -44,7 +45,7 @@ func DelHeader(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$DelHeader: %w", err)
 	}
 	key := args[0]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		if mr != nil {
 			if err := mr.DeleteHeader(key); err != nil {
 				replyMmfgError(w, "Failed to delete mmfg request header", err)
@@ -60,7 +61,7 @@ func SetHost(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$SetHost: %w", err)
 	}
 	host := args[0]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		r.Host = host
 	}, nil
 }
@@ -93,7 +94,7 @@ func PathTrimPrefix(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$PathTrimPrefix: %w", err)
 	}
 	prefix := args[0]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		u, err := getURL(r, mr)
 		if err != nil {
 			replyMmfgError(w, "Failed to get request URL", err)
@@ -120,7 +121,7 @@ func RewritePath(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$RewritePath: %w", err)
 	}
 	old, new := args[0], args[1]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		u, err := getURL(r, mr)
 		if err != nil {
 			replyMmfgError(w, "Failed to get request URL", err)
@@ -145,7 +146,7 @@ func SetQuery(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$SetQuery: %w", err)
 	}
 	key, val := args[0], args[1]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		u, err := getURL(r, mr)
 		if err != nil {
 			replyMmfgError(w, "Failed to get request URL", err)
@@ -184,7 +185,7 @@ func BasicAuth(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$BasicAuth: %w", err)
 	}
 	user, pass := []byte(args[0]), []byte(args[1])
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		var u, p string
 		var ok bool
 
@@ -211,7 +212,7 @@ func RequireHeader(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$RequireHeader: %w", err)
 	}
 	key, val := args[0], args[1]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		var got string
 		if mr != nil {
 			h, err := mr.Header(key)
@@ -247,7 +248,7 @@ func IPAllow(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$IPAllow: invalid CIDR %q: %w", cidr, err)
 	}
 
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		var ipStr string
 		if headerKey != "" {
 			if mr != nil {
@@ -319,7 +320,7 @@ func BodySizeLimit(args ...string) (HandlerFunc, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", BodySizeLimitFuncName, err)
 	}
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		if r.ContentLength > max {
 			w.Reply("Request Entity Too Large", http.StatusRequestEntityTooLarge)
 			return
@@ -335,8 +336,21 @@ func Log(args ...string) (HandlerFunc, error) {
 		return nil, fmt.Errorf("$Log: %w", err)
 	}
 	line := args[0]
-	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request) {
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
 		fmt.Println(line)
+	}, nil
+}
+
+func RetryLimit(args ...string) (HandlerFunc, error) {
+	if _, err := builtins.CheckArgCount(args, 1, 1); err != nil {
+		return nil, fmt.Errorf("$RetryLimit: %w", err)
+	}
+	limit, err := strconv.ParseUint(args[0], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("$RetryLimit: invalid limit %q", args[0])
+	}
+	return func(w *tempresp.ResponseWriter, r *http.Request, mr mmfg.Request, o *routeoptions.Options) {
+		o.SetRetryLimit(limit)
 	}, nil
 }
 
@@ -353,6 +367,7 @@ var Registry = map[string]MiddlewareFactory{
 	"$RequireHeader":      RequireHeader,
 	"$IPAllow":            IPAllow,
 	"$Log":                Log,
+	"$RetryLimit":         RetryLimit,
 	BodySizeLimitFuncName: BodySizeLimit,
 }
 

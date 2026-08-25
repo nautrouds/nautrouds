@@ -54,7 +54,7 @@ func TestSetHeader(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "hello", req.Header.Get("X-Custom"))
 }
 
@@ -64,7 +64,7 @@ func TestSetHeader_Overwrite(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Custom", "old")
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "new", req.Header.Get("X-Custom"))
 }
 
@@ -74,7 +74,7 @@ func TestDelHeader(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Remove", "value")
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Empty(t, req.Header.Get("X-Remove"))
 }
 
@@ -84,7 +84,7 @@ func TestDelHeader_NonExistent(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	// Should not panic when deleting a header that doesn't exist
-	assert.NotPanics(t, func() { fn(w, req, nil) })
+	assert.NotPanics(t, func() { fn(w, req, nil, nil) })
 }
 
 func TestSetHost(t *testing.T) {
@@ -92,7 +92,7 @@ func TestSetHost(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "override.example.com", req.Host)
 }
 
@@ -101,7 +101,7 @@ func TestPathTrimPrefix_Matches(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api/users", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "/users", req.URL.Path)
 }
 
@@ -110,7 +110,7 @@ func TestPathTrimPrefix_NoMatch(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api/users", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "/api/users", req.URL.Path)
 }
 
@@ -119,7 +119,7 @@ func TestPathTrimPrefix_UpdatesRequestURI(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/v1/items?q=test", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "/items", req.URL.Path)
 	assert.Equal(t, "/items?q=test", req.RequestURI)
 }
@@ -129,7 +129,7 @@ func TestRewritePath(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/old/resource", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "/new/resource", req.URL.Path)
 }
 
@@ -138,7 +138,7 @@ func TestRewritePath_NoMatch(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/other/resource", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "/other/resource", req.URL.Path)
 }
 
@@ -147,7 +147,7 @@ func TestSetQuery_AddsKey(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "2", req.URL.Query().Get("version"))
 }
 
@@ -156,7 +156,7 @@ func TestSetQuery_PreservesExisting(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/api?existing=true", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, "2", req.URL.Query().Get("version"))
 	assert.Equal(t, "true", req.URL.Query().Get("existing"))
 }
@@ -167,7 +167,7 @@ func TestBasicAuth_ValidCredentials(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.SetBasicAuth("admin", "secret")
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
@@ -177,7 +177,7 @@ func TestBasicAuth_WrongPassword(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.SetBasicAuth("admin", "wrong")
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusUnauthorized, w.GetCode())
 }
 
@@ -186,7 +186,7 @@ func TestBasicAuth_NoHeader(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusUnauthorized, w.GetCode())
 }
 
@@ -195,7 +195,7 @@ func TestBasicAuth_SetsWWWAuthenticate(t *testing.T) {
 	require.NoError(t, err)
 	w, rec := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	// Commit to recorder so we can inspect headers
 	w.Commit()
 	assert.Contains(t, rec.Header().Get("WWW-Authenticate"), "Basic")
@@ -207,7 +207,7 @@ func TestBasicAuth_Mmfg_ValidCredentials(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"Authorization": "Basic YWRtaW46c2VjcmV0"}} // admin:secret
-	fn(w, req, mr)
+	fn(w, req, mr, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
@@ -217,7 +217,7 @@ func TestBasicAuth_Mmfg_WrongPassword(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"Authorization": "Basic YWRtaW46d3Jvbmc="}} // admin:wrong
-	fn(w, req, mr)
+	fn(w, req, mr, nil)
 	assert.Equal(t, http.StatusUnauthorized, w.GetCode())
 }
 
@@ -227,7 +227,7 @@ func TestBasicAuth_Mmfg_NoHeader(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{}}
-	fn(w, req, mr)
+	fn(w, req, mr, nil)
 	assert.Equal(t, http.StatusUnauthorized, w.GetCode())
 }
 
@@ -237,7 +237,7 @@ func TestRequireHeader_Match(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Internal", "yes")
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
@@ -247,7 +247,7 @@ func TestRequireHeader_Mismatch(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Internal", "no")
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusForbidden, w.GetCode())
 }
 
@@ -256,7 +256,7 @@ func TestRequireHeader_Missing(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusForbidden, w.GetCode())
 }
 
@@ -266,7 +266,7 @@ func TestRequireHeader_Mmfg_Match(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"X-Internal": "yes"}}
-	fn(w, req, mr)
+	fn(w, req, mr, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
@@ -276,7 +276,7 @@ func TestRequireHeader_Mmfg_Mismatch(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{}}
-	fn(w, req, mr)
+	fn(w, req, mr, nil)
 	assert.Equal(t, http.StatusForbidden, w.GetCode())
 }
 
@@ -286,7 +286,7 @@ func TestIPAllow_AllowedIP(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
@@ -296,7 +296,7 @@ func TestIPAllow_BlockedIP(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusForbidden, w.GetCode())
 }
 
@@ -317,7 +317,7 @@ func TestIPAllow_HeaderKey_AllowedIP(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-IP", "192.0.2.1")
 	req.RemoteAddr = "10.0.0.1:1234"
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
@@ -328,7 +328,7 @@ func TestIPAllow_HeaderKey_BlockedIP(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-IP", "10.0.0.1")
 	req.RemoteAddr = "192.0.2.1:1234"
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusForbidden, w.GetCode())
 }
 
@@ -338,7 +338,7 @@ func TestIPAllow_HeaderKey_Mmfg_AllowedIP(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
 	mr := &fakeMmfgRequest{headers: map[string]string{"X-Real-IP": "192.0.2.1"}}
-	fn(w, req, mr)
+	fn(w, req, mr, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
 
@@ -348,7 +348,7 @@ func TestLog_DoesNotPanic(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/path", nil)
 	req.RemoteAddr = "127.0.0.1:9999"
-	assert.NotPanics(t, func() { fn(w, req, nil) })
+	assert.NotPanics(t, func() { fn(w, req, nil, nil) })
 }
 
 func TestLog_PrintsLineAsIs(t *testing.T) {
@@ -362,7 +362,7 @@ func TestLog_PrintsLineAsIs(t *testing.T) {
 	require.NoError(t, err)
 	origStdout := os.Stdout
 	os.Stdout = wPipe
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	wPipe.Close()
 	os.Stdout = origStdout
 
@@ -399,7 +399,7 @@ func TestBodySizeLimit_ParsesSizes(t *testing.T) {
 			w, _ := newWriter()
 			req := httptest.NewRequest("POST", "/", strings.NewReader(""))
 			req.ContentLength = tt.wantMax + 1
-			fn(w, req, nil)
+			fn(w, req, nil, nil)
 			assert.Equal(t, http.StatusRequestEntityTooLarge, w.GetCode())
 		})
 	}
@@ -411,7 +411,7 @@ func TestBodySizeLimit_RejectsOversizedContentLength(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("POST", "/", strings.NewReader("this body is way over ten bytes"))
 	req.ContentLength = 32
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, w.GetCode())
 }
 
@@ -421,7 +421,7 @@ func TestBodySizeLimit_WrapsBodyWithinLimit(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("POST", "/", strings.NewReader("small body"))
 	req.ContentLength = int64(len("small body"))
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 
 	body, err := io.ReadAll(req.Body)
@@ -435,7 +435,7 @@ func TestBodySizeLimit_TruncatesOversizedChunkedBody(t *testing.T) {
 	w, _ := newWriter()
 	req := httptest.NewRequest("POST", "/", strings.NewReader("this body is way over ten bytes"))
 	req.ContentLength = -1 // simulate chunked transfer: no Content-Length precheck
-	fn(w, req, nil)
+	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode()) // MaxBytesReader defers the error to Read
 
 	_, err = io.ReadAll(req.Body)
