@@ -16,6 +16,10 @@ func Analyze(origin []string) uint16 {
 	return mask
 }
 
+func IsValid(tag string) bool {
+	return parseTag(tag) != 0
+}
+
 func parseTag(tag string) uint16 {
 	switch strings.ReplaceAll(strings.TrimPrefix(tag, "@"), "!", "no-") {
 	case "no-metrics":
