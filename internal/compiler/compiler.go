@@ -4,160 +4,106 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"nautrouds/internal/core/builtins"
-	"nautrouds/internal/core/builtins/builtinsmware"
-	"nautrouds/internal/core/builtins/virtualservices"
-	"nautrouds/internal/core/mmfg"
+	"nautrouds/internal/compiler/commentline"
+	"nautrouds/internal/compiler/middlewareline"
+	"nautrouds/internal/compiler/ruleline"
+	"nautrouds/internal/compiler/tagline"
 	"nautrouds/internal/rtree"
 	"strings"
-
-	"github.com/google/shlex"
 )
 
 func Parse(r io.Reader) (*rtree.RouteTree, error) {
-	var rawRules []rtree.RawNode
-	var ruleLines []int
-	var currentRule *rtree.RawNode
-	var skippingUntilBlank bool
 
 	scanner := bufio.NewScanner(r)
 	lineCount := 0
+
+	comments := commentline.New()
+	rule := ruleline.New()
+	tags := tagline.New()
+	middlewares := middlewareline.New()
+
+	var rawNodes []*rtree.RawNode
+
+	parseRule := func(r *ruleline.RawRule) {
+		r.Tags = tags.Flush()
+		r.Middlewares = middlewares.Flush()
+		for _, url := range r.URLs {
+			node := r.RawNode
+			node.URL = url
+			rawNodes = append(rawNodes, &node)
+		}
+	}
+
 	for scanner.Scan() {
+
 		lineCount++
 		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
 
-		if trimmed == "" {
-			skippingUntilBlank = false
+		if comments.IsComment(line) {
 			continue
 		}
 
-		if skippingUntilBlank {
+		if middlewares.Pending() {
+
+			if ruleline.IsRule(line) || tagline.IsTag(line) {
+				return nil, fmt.Errorf("line %d: unterminated middleware directive: unclosed parenthesis before next rule or tag", lineCount)
+			}
+
+			if _, err := middlewares.TryParse(line); err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineCount, err)
+			}
 			continue
 		}
 
-		if strings.HasPrefix(trimmed, "#*") {
-			skippingUntilBlank = true
+		if ruleline.IsRule(line) {
+
+			if r := rule.Flush(); r != nil {
+				parseRule(r)
+			} else {
+				tags.Flush()
+				middlewares.Flush()
+			}
+
+			if err := rule.Parse(line); err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineCount, err)
+			}
+
 			continue
 		}
 
-		if strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		isIndent := strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "\t")
-
-		if !isIndent {
-			fields, err := shlex.Split(trimmed)
-			if err != nil {
-				return nil, fmt.Errorf("line %d: invalid rule syntax: %s", lineCount, trimmed)
-			}
-
-			rule := rtree.RawNode{}
-
-			switch len(fields) {
-			case 0:
-				continue
-			case 1:
-				rule.Methods, rule.URL, rule.Service = "*", "**", fields[0]
-			case 2:
-				rule.Methods, rule.URL, rule.Service = "*", fields[0], fields[1]
-			case 3:
-				rule.Methods, rule.URL, rule.Service = fields[0], fields[1], fields[2]
-			default:
-				return nil, fmt.Errorf("line %d: invalid rule fields (expected 1-3, got %d): %s", lineCount, len(fields), trimmed)
-			}
-
-			if ok, bad := rtree.ValidateMethods(rule.Methods); !ok {
-				return nil, fmt.Errorf("line %d: unknown HTTP method: %s", lineCount, bad)
-			}
-
-			if strings.HasPrefix(rule.Service, "$") {
-				valid, name := virtualservices.IsValid(rule.Service)
-				if !valid {
-					if name == "" {
-						return nil, fmt.Errorf("line %d: invalid virtual service syntax: %s", lineCount, rule.Service)
-					}
-					return nil, fmt.Errorf("line %d: unknown virtual service: %s", lineCount, name)
-				}
-				if funcName, args, err := builtins.ParseDirective(rule.Service); err == nil {
-					if factory, ok := virtualservices.Registry[funcName]; ok && factory != nil {
-						if _, err := factory(args...); err != nil {
-							return nil, fmt.Errorf("line %d: %s", lineCount, err)
-						}
-					}
-				}
-			}
-
-			rawRules = append(rawRules, rule)
-			ruleLines = append(ruleLines, lineCount)
-			currentRule = &rawRules[len(rawRules)-1]
-
-		} else {
-			if currentRule == nil {
+		if !rule.Pending() {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
 				fmt.Printf("warning: line %d: unexpected indent without a preceding rule, skipping: %q\n", lineCount, trimmed)
-				continue
 			}
-
-			switch trimmed[0] {
-			case '@':
-				currentRule.Tags = append(currentRule.Tags, trimmed)
-			case '$':
-				switch {
-				case strings.HasPrefix(trimmed, "$mmfg"):
-					if err := mmfg.ValidateDirective(trimmed); err != nil {
-						return nil, fmt.Errorf("line %d: %s", lineCount, err)
-					}
-				default:
-					valid, name := builtinsmware.IsValid(trimmed)
-					if !valid {
-						if name == "" {
-							return nil, fmt.Errorf("line %d: invalid builtin middleware syntax: %s", lineCount, trimmed)
-						}
-						return nil, fmt.Errorf("line %d: unknown builtin middleware: %s", lineCount, name)
-					}
-					if funcName, args, err := builtins.ParseDirective(trimmed); err == nil {
-						if factory, ok := builtinsmware.Registry[funcName]; ok {
-							if _, err := factory(args...); err != nil {
-								return nil, fmt.Errorf("line %d: %s", lineCount, err)
-							}
-						}
-					}
-				}
-				fallthrough
-			default:
-				if !strings.HasPrefix(trimmed, "$") {
-					if err := validateExternalMiddleware(trimmed); err != nil {
-						return nil, fmt.Errorf("line %d: %s", lineCount, err)
-					}
-				}
-				if err := validateMiddlewareOrder(currentRule.Middlewares, trimmed); err != nil {
-					return nil, fmt.Errorf("line %d: %s", lineCount, err)
-				}
-				currentRule.Middlewares = append(currentRule.Middlewares, trimmed)
-			}
+			continue
 		}
+
+		if ok, err := tags.TryParse(line); ok {
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineCount, err)
+			}
+			continue
+		}
+
+		if ok, err := middlewares.TryParse(line); ok {
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineCount, err)
+			}
+			continue
+		}
+
+	}
+
+	if r := rule.Flush(); r != nil {
+		parseRule(r)
+	}
+
+	if middlewares.Pending() {
+		return nil, fmt.Errorf("line %d: unterminated middleware directive: unclosed parenthesis at end of file", lineCount)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scanner error at line %d: %w", lineCount, err)
-	}
-
-	var rawNodes []*rtree.RawNode
-	for i, rule := range rawRules {
-		urls, err := expandField(rule.URL)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %s", ruleLines[i], err)
-		}
-		for _, url := range urls {
-			rawNodes = append(rawNodes, &rtree.RawNode{
-				Methods:     rule.Methods,
-				URL:         normalizeURL(url),
-				Service:     rule.Service,
-				Middlewares: rule.Middlewares,
-				Tags:        rule.Tags,
-			})
-		}
 	}
 
 	return rtree.Build(rawNodes), nil

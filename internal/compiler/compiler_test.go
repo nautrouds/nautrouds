@@ -144,14 +144,17 @@ GET example.com/api svc
 
 func TestParse_InvalidMmfg(t *testing.T) {
 	cases := []struct {
-		name string
-		expr string
+		name    string
+		expr    string
+		wantErr string
 	}{
-		{"MissingClosingParen", "$mmfg("},
-		{"EmptyNodeName", "$mmfg()"},
-		{"UnterminatedNodeName", "$mmfg(foo"},
-		{"NoParens", "$mmfg"},
-		{"TooManyArgs", "$mmfg(foo, bar)"},
+		// Unclosed parens are treated as a pending multi-line directive; with nothing
+		// left to close them, parsing ends in "unterminated", not an $mmfg-specific error.
+		{"MissingClosingParen", "$mmfg(", "unterminated middleware directive"},
+		{"UnterminatedNodeName", "$mmfg(foo", "unterminated middleware directive"},
+		{"EmptyNodeName", "$mmfg()", "invalid $mmfg"},
+		{"NoParens", "$mmfg", "invalid $mmfg"},
+		{"TooManyArgs", "$mmfg(foo, bar)", "invalid $mmfg"},
 	}
 
 	for _, c := range cases {
@@ -162,7 +165,7 @@ GET example.com/api svc
 `, c.expr)
 			_, err := compiler.ParseString(script)
 			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid $mmfg")
+			assert.Contains(t, err.Error(), c.wantErr)
 		})
 	}
 }
