@@ -1,4 +1,4 @@
-package compiler
+package ruleline
 
 import (
 	"fmt"
