@@ -10,8 +10,6 @@ import (
 	"github.com/google/shlex"
 )
 
-// RawRule 擴充 rtree.RawNode,額外保存 Parse 當下就展開好的多筆 URLs(嵌入的 RawNode.URL 不使用),
-// 供呼叫端逐一取出建立 rtree.RawNode 而不用再另外呼叫 expandField/normalizeURL。
 type RawRule struct {
 	rtree.RawNode
 	URLs []string
