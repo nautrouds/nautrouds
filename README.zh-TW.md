@@ -67,11 +67,11 @@ Nautrouds 使用 `Ntufile` 作為設定檔，經由 `ntuc` 編譯器轉換為 bi
 ```text
 # 基礎路由規則
 GET /api/v1/users user-service
-    $SetHeader(X-Source, Nautrouds)
-    $BasicAuth(admin, secret)
+    $SetHeader("X-Source", "Nautrouds")
+    $BasicAuth("admin", "secret")
 
 POST /upload/* storage-service
-    $IPAllow(192.168.1.0/24)
+    $IPAllow("192.168.1.0/24")
 ```
 
 詳細的語法規格、內建中間件與虛擬服務清單，請參閱 [語法指南](./docs/syntax.md)。關於 CLI 使用與核心設定，請參閱 [工具指南](./docs/ntuc.md)。

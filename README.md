@@ -67,11 +67,11 @@ Use the `ntuc` tool to compile your `Ntufile` into a binary format readable by t
 ```text
 # Basic routing rules
 GET /api/v1/users user-service
-    $SetHeader(X-Source, Nautrouds)
-    $BasicAuth(admin, secret)
+    $SetHeader("X-Source", "Nautrouds")
+    $BasicAuth("admin", "secret")
 
 POST /upload/* storage-service
-    $IPAllow(192.168.1.0/24)
+    $IPAllow("192.168.1.0/24")
 ```
 
 For detailed syntax specifications, built-in middleware, and virtual service listings, please refer to the [Syntax Guide](./docs/syntax.md). 

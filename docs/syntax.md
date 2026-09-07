@@ -9,7 +9,7 @@ Each rule consists of 1 to 3 columns, followed by optional indented middleware d
 ### Rule Format
 ```text
 [METHOD] [URL] <SERVICE>
-    $Middleware(args)
+    $Middleware("args")
 ```
 
 ### Column Variations
@@ -29,8 +29,45 @@ backend-default
 
 # Strict matching
 POST /upload/* storage-service
-    $IPAllow(192.168.0.0/16)
+    $IPAllow("192.168.0.0/16")
 ```
+
+### Block Syntax
+Tags and middleware directives can also be grouped in a `{ }` block instead of relying on indentation. Both forms below define the exact same rule:
+
+```text
+# Indented form
+POST /upload/* storage-service
+    $IPAllow("192.168.0.0/16")
+    @no-metrics
+
+# Block form
+POST /upload/* storage-service {
+    $IPAllow("192.168.0.0/16")
+    @no-metrics
+}
+
+# Single line with ";"
+POST /upload/* storage-service { $IPAllow("192.168.0.0/16"); @no-metrics }
+
+# Block form without indentation
+POST /upload/* storage-service {
+$IPAllow("192.168.0.0/16")
+@no-metrics
+}
+
+# Minimum whitespace
+POST /upload/* storage-service{$IPAllow("192.168.0.0/16");@no-metrics}
+
+# 1-column form (no METHOD/URL)
+backend-default{$IPAllow("192.168.0.0/16");@no-metrics}
+```
+
+- `{` may end the rule line or start its own line right after.
+- Indentation inside `{ }` is cosmetic, not required.
+- `}` must close before another rule can start.
+- `;` is required between two bare (unparenthesized) directives — otherwise they silently merge into one invalid value. It's optional right after a `)`.
+- No indentation needed at all: a line with none is only misread as a new rule outside a `{ }` block.
 
 ### Comments
 - `#`: Single-line comment.
@@ -76,7 +113,7 @@ Middlewares are applied to a route via indentation.
 A middleware name without a `$` prefix is forwarded to a UDS service registered under that name. It accepts the same `(args)` syntax as builtins:
 
 ```text
-auth-service(/check, header=X-User-Id, header=X-User-Role)
+auth-service("/check", "header=X-User-Id", "header=X-User-Role")
 ```
 
 | Position | Meaning |
@@ -92,7 +129,7 @@ auth-service(/check, header=X-User-Id, header=X-User-Role)
 
 ```text
 GET /api/* backend-service
-    $mmfg(mmfg-service/auth)
+    $mmfg("mmfg-service/auth")
 ```
 
 - **unix-only**: mmfg is unavailable on non-unix builds. A route hitting `$mmfg(...)` on such a build returns `500`.
