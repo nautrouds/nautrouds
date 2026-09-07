@@ -2,6 +2,7 @@ package ruleline
 
 import (
 	"fmt"
+	"nautrouds/internal/compiler/tokenizer"
 	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/builtins/virtualservices"
 	"nautrouds/internal/rtree"
@@ -23,19 +24,16 @@ func New() *Tracker {
 	return &Tracker{}
 }
 
-func IsRule(line string) bool {
-	if strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "\t") {
-		return false
-	}
-	return strings.TrimSpace(line) != ""
+func IsRule(part *tokenizer.Part) bool {
+	return !part.Indented && part.Depth == 0 && (part.Flag == tokenizer.Text || part.Flag == tokenizer.Call)
 }
 
-func (t *Tracker) Parse(line string) error {
-	trimmed := strings.TrimSpace(line)
+func (t *Tracker) Parse(part *tokenizer.Part) error {
+	v := part.String()
 
-	fields, err := shlex.Split(trimmed)
+	fields, err := shlex.Split(v)
 	if err != nil {
-		return fmt.Errorf("invalid rule syntax: %s", trimmed)
+		return fmt.Errorf("invalid rule syntax: %s", v)
 	}
 
 	var methods, rawURL, service string
@@ -50,7 +48,7 @@ func (t *Tracker) Parse(line string) error {
 	case 3:
 		methods, rawURL, service = fields[0], fields[1], fields[2]
 	default:
-		return fmt.Errorf("invalid rule fields (expected 1-3, got %d): %s", len(fields), trimmed)
+		return fmt.Errorf("invalid rule fields (expected 1-3, got %d): %s", len(fields), v)
 	}
 
 	if ok, bad := rtree.ValidateMethods(methods); !ok {

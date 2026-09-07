@@ -2,6 +2,7 @@ package tagline
 
 import (
 	"fmt"
+	"nautrouds/internal/compiler/tokenizer"
 	"nautrouds/internal/tags"
 	"strings"
 )
@@ -18,17 +19,21 @@ func IsTag(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), "@")
 }
 
-func (t *Tracker) TryParse(line string) (bool, error) {
-	trimmed := strings.TrimSpace(line)
-	if !strings.HasPrefix(trimmed, "@") {
+func (t *Tracker) TryParse(part *tokenizer.Part) (bool, error) {
+	if part.Flag != tokenizer.Text {
 		return false, nil
 	}
 
-	if !tags.IsValid(trimmed) {
-		return true, fmt.Errorf("unknown tag: %s", trimmed)
+	v := part.String()
+	if !strings.HasPrefix(v, "@") {
+		return false, nil
 	}
 
-	t.tags = append(t.tags, trimmed)
+	if !tags.IsValid(v) {
+		return true, fmt.Errorf("unknown tag: %s", v)
+	}
+
+	t.tags = append(t.tags, v)
 	return true, nil
 }
 

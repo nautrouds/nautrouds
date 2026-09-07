@@ -51,7 +51,7 @@ func TestParse_UnterminatedMiddleware(t *testing.T) {
 		_, err := Parse(strings.NewReader(script))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "line 4:")
-		assert.Contains(t, err.Error(), "unterminated middleware directive")
+		assert.Contains(t, err.Error(), "unterminated parentheses")
 	})
 
 	t.Run("FollowedByTag", func(t *testing.T) {
@@ -59,14 +59,14 @@ func TestParse_UnterminatedMiddleware(t *testing.T) {
 		_, err := Parse(strings.NewReader(script))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "line 4:")
-		assert.Contains(t, err.Error(), "unterminated middleware directive")
+		assert.Contains(t, err.Error(), "unterminated parentheses")
 	})
 
 	t.Run("AtEOF", func(t *testing.T) {
 		script := "GET /path service\n  $SetHeader(\n    \"a\"\n"
 		_, err := Parse(strings.NewReader(script))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unterminated middleware directive")
+		assert.Contains(t, err.Error(), "unterminated parentheses")
 	})
 }
 

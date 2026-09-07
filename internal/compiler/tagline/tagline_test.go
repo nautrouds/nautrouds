@@ -3,8 +3,19 @@ package tagline
 import (
 	"testing"
 
+	"nautrouds/internal/compiler/tokenizer"
+
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func tokenizeOne(t *testing.T, line string) *tokenizer.Part {
+	t.Helper()
+	parts, err := tokenizer.New().Tokenize(1, line)
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+	return parts[0]
+}
 
 func TestIsTag(t *testing.T) {
 	tests := []struct {
@@ -29,19 +40,19 @@ func TestIsTag(t *testing.T) {
 func TestTryParse(t *testing.T) {
 	tr := New()
 
-	ok, err := tr.TryParse("  @no-metrics")
+	ok, err := tr.TryParse(tokenizeOne(t, "  @no-metrics"))
 	assert.True(t, ok)
 	assert.NoError(t, err)
 
-	ok, err = tr.TryParse("@!metrics")
+	ok, err = tr.TryParse(tokenizeOne(t, "@!metrics"))
 	assert.True(t, ok)
 	assert.NoError(t, err)
 
-	ok, err = tr.TryParse("  $SetHeader(a, b)")
+	ok, err = tr.TryParse(tokenizeOne(t, "  $SetHeader(a, b)"))
 	assert.False(t, ok)
 	assert.NoError(t, err)
 
-	ok, err = tr.TryParse("GET /path service")
+	ok, err = tr.TryParse(tokenizeOne(t, "GET /path service"))
 	assert.False(t, ok)
 	assert.NoError(t, err)
 
@@ -51,7 +62,7 @@ func TestTryParse(t *testing.T) {
 func TestTryParse_UnknownTag(t *testing.T) {
 	tr := New()
 
-	ok, err := tr.TryParse("@does-not-exist")
+	ok, err := tr.TryParse(tokenizeOne(t, "@does-not-exist"))
 	assert.True(t, ok)
 	assert.Error(t, err)
 	assert.Empty(t, tr.Flush())
@@ -59,7 +70,7 @@ func TestTryParse_UnknownTag(t *testing.T) {
 
 func TestFlush(t *testing.T) {
 	tr := New()
-	_, _ = tr.TryParse("@no-metrics")
+	_, _ = tr.TryParse(tokenizeOne(t, "@no-metrics"))
 
 	assert.Equal(t, []string{"@no-metrics"}, tr.Flush())
 	assert.Empty(t, tr.Flush())

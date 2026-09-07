@@ -150,8 +150,8 @@ func TestParse_InvalidMmfg(t *testing.T) {
 	}{
 		// Unclosed parens are treated as a pending multi-line directive; with nothing
 		// left to close them, parsing ends in "unterminated", not an $mmfg-specific error.
-		{"MissingClosingParen", "$mmfg(", "unterminated middleware directive"},
-		{"UnterminatedNodeName", "$mmfg(foo", "unterminated middleware directive"},
+		{"MissingClosingParen", "$mmfg(", "unterminated parentheses"},
+		{"UnterminatedNodeName", "$mmfg(foo", "unterminated parentheses"},
 		{"EmptyNodeName", "$mmfg()", "invalid $mmfg"},
 		{"NoParens", "$mmfg", "invalid $mmfg"},
 		{"TooManyArgs", "$mmfg(foo, bar)", "invalid $mmfg"},

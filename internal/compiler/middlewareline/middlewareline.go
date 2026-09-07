@@ -2,6 +2,7 @@ package middlewareline
 
 import (
 	"fmt"
+	"nautrouds/internal/compiler/tokenizer"
 	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/builtins/builtinsmware"
 	"nautrouds/internal/core/mmfg"
@@ -10,77 +11,32 @@ import (
 
 type Tracker struct {
 	middlewares []string
-
-	pending        string
-	pendingDepth   int
-	pendingInQuote bool
 }
 
 func New() *Tracker {
 	return &Tracker{}
 }
 
-func (t *Tracker) TryParse(line string) (bool, error) {
-	trimmed := strings.TrimSpace(line)
-
-	if t.pending != "" {
-		t.pending += trimmed
-		scanParens(trimmed, &t.pendingInQuote, &t.pendingDepth)
-
-		switch {
-		case t.pendingDepth > 0:
-			return true, nil
-		case t.pendingDepth < 0:
-			expr := t.pending
-			t.pending = ""
-			return true, fmt.Errorf("unbalanced parentheses: %s", expr)
-		default:
-			expr := t.pending
-			t.pending = ""
-			return true, t.finish(expr)
-		}
+func (t *Tracker) TryParse(part *tokenizer.Part) error {
+	if part.Flag != tokenizer.Text && part.Flag != tokenizer.Call {
+		return nil
 	}
 
-	if trimmed == "" || strings.HasPrefix(trimmed, "@") {
-		return false, nil
-	}
-
-	depth := 0
-	inQuote := false
-	scanParens(trimmed, &inQuote, &depth)
-
+	v := part.String()
 	switch {
-	case depth > 0:
-		t.pending = trimmed
-		t.pendingDepth = depth
-		t.pendingInQuote = inQuote
-		return true, nil
-	case depth < 0:
-		return true, fmt.Errorf("unbalanced parentheses: %s", trimmed)
-	default:
-		return true, t.finish(trimmed)
-	}
-}
-
-func (t *Tracker) Pending() bool {
-	return t.pending != ""
-}
-
-func (t *Tracker) finish(trimmed string) error {
-	switch {
-	case strings.HasPrefix(trimmed, "$mmfg"):
-		if err := mmfg.ValidateDirective(trimmed); err != nil {
+	case part.Value == "$mmfg":
+		if err := mmfg.ValidateDirective(v); err != nil {
 			return err
 		}
-	case strings.HasPrefix(trimmed, "$"):
-		valid, name := builtinsmware.IsValid(trimmed)
+	case part.Value[0] == '$':
+		valid, name := builtinsmware.IsValid(v)
 		if !valid {
 			if name == "" {
-				return fmt.Errorf("invalid builtin middleware syntax: %s", trimmed)
+				return fmt.Errorf("invalid builtin middleware syntax: %s", v)
 			}
 			return fmt.Errorf("unknown builtin middleware: %s", name)
 		}
-		if funcName, args, err := builtins.ParseDirective(trimmed); err == nil {
+		if funcName, args, err := builtins.ParseDirective(v); err == nil {
 			if factory, ok := builtinsmware.Registry[funcName]; ok {
 				if _, err := factory(args...); err != nil {
 					return err
@@ -88,34 +44,18 @@ func (t *Tracker) finish(trimmed string) error {
 			}
 		}
 	default:
-		if err := validateExternalMiddleware(trimmed); err != nil {
+		if err := validateExternalMiddleware(v); err != nil {
 			return err
 		}
 	}
 
-	if err := validateMiddlewareOrder(t.middlewares, trimmed); err != nil {
+	if err := validateMiddlewareOrder(t.middlewares, v); err != nil {
 		return err
 	}
 
-	t.middlewares = append(t.middlewares, trimmed)
+	t.middlewares = append(t.middlewares, v)
 	return nil
-}
 
-func scanParens(s string, inQuote *bool, depth *int) {
-	for _, r := range s {
-		switch r {
-		case '"':
-			*inQuote = !*inQuote
-		case '(':
-			if !*inQuote {
-				*depth++
-			}
-		case ')':
-			if !*inQuote {
-				*depth--
-			}
-		}
-	}
 }
 
 func (t *Tracker) Flush() []string {
