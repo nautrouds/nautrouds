@@ -78,7 +78,7 @@ An indented line starting with `@` attaches a tag to the rule instead of a middl
 
 | Tag | Description |
 | :--- | :--- |
-| `@no-metrics` / `@!metrics` | Excludes this route from the per-request HTTP metrics (`nautrouds_http_requests_total`, byte counters, etc.). Both forms are equivalent. |
+| `@no-metrics` / `@!metrics` | Excludes this route from the per-request HTTP metrics (`nautrouds_http_requests_total`, byte counters, `nautrouds_request_duration_seconds`, `nautrouds_own_duration_seconds`, etc.). Both forms are equivalent. |
 
 ```text
 GET /health $ok

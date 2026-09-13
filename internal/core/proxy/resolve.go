@@ -37,6 +37,7 @@ func resolveServiceName(s *servingState) {
 	targetServiceID := s.tree.ActionMetadata[serviceMetadataIndex]
 	rawServiceName := s.tree.GetActionName(targetServiceID)
 
+	s.rawServiceName = rawServiceName
 	s.finalServiceName = rawServiceName
 	s.isStaticService = true
 	if opCount := s.tree.ActionMetadata[serviceMetadataIndex+1]; opCount > 0 {

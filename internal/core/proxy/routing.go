@@ -17,13 +17,11 @@ func lookupRoute(s *servingState) bool {
 	rtree.ReverseHost(lookupPathBytes)
 	node, exists := s.tree.Search(lookupPathBytes)
 	if !exists {
-		s.routePattern = "404"
 		http.Error(s.w, "Resource Not Found", http.StatusNotFound)
 		return false
 	}
 
 	s.node = node
-	s.routePattern = lookupPath
 	return true
 }
 

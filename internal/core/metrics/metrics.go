@@ -52,7 +52,7 @@ var (
 	Global *Registry
 
 	// DefaultBuckets for histograms
-	DefaultBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
+	DefaultBuckets = []float64{.005, .01, .025, .05, .06, .075, .09, .1, .25, .5, 1, 2.5, 5, 10}
 )
 
 func init() {

@@ -59,7 +59,7 @@ type servingState struct {
 	interpolator *interpolate.RequestContext
 	options      *routeoptions.Options
 
-	routePattern     string
+	rawServiceName   string
 	finalServiceName string
 	isStaticService  bool
 }
@@ -93,11 +93,16 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if trackedWriter.hijacked {
 			return
 		}
+		if s.node != nil && s.node.Tags&tags.NoMetricsTag != 0 {
+			return
+		}
+
 		total := time.Since(start)
-		metrics.Global.RequestDuration.WithLabelValues(r.Method, s.routePattern).Observe(total.Seconds())
+		route := metricsRouteLabel(s)
+		metrics.Global.RequestDuration.WithLabelValues(r.Method, route).Observe(total.Seconds())
 
 		own := total - time.Duration(externalNs.Load())
-		metrics.Global.OwnDuration.WithLabelValues(s.routePattern).Observe(own.Seconds())
+		metrics.Global.OwnDuration.WithLabelValues(route).Observe(own.Seconds())
 	}()
 
 	// Route Lookup
@@ -140,6 +145,17 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Load Balancing
 	m.forwardToBackend(s)
+}
+
+func metricsRouteLabel(s *servingState) string {
+	switch {
+	case s.node == nil:
+		return "404"
+	case s.rawServiceName != "":
+		return s.rawServiceName
+	default:
+		return "unmatched"
+	}
 }
 
 func (m *Manager) StartUDSListener(ctx context.Context, socketPath string) error {

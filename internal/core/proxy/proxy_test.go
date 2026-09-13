@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"nautrouds/internal/core/metrics"
 	"nautrouds/internal/core/proxy"
 	"nautrouds/internal/core/registry"
 	"nautrouds/internal/rtree"
@@ -88,6 +89,47 @@ func TestManager_ServeHTTP(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "Success", w.Body.String())
 	})
+}
+
+func TestManager_LatencyMetrics(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "nautrouds-proxy-metrics-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	reg, err := registry.NewRegistry()
+	require.NoError(t, err)
+
+	manager := proxy.NewManager(reg, nil)
+
+	rawNodes := []*rtree.RawNode{
+		{
+			URL:     "metrics.example.com/tracked",
+			Service: "$ok(tracked)",
+			Methods: "GET",
+		},
+		{
+			URL:     "metrics.example.com/silent",
+			Service: "$ok(silent)",
+			Methods: "GET",
+			Tags:    []string{"@no-metrics"},
+		},
+	}
+	tree := rtree.Build(rawNodes)
+	manager.UpdateGeneration(&proxy.Generation{Tree: *tree})
+
+	req := httptest.NewRequest("GET", "http://metrics.example.com/tracked", nil)
+	manager.ServeHTTP(httptest.NewRecorder(), req)
+
+	req = httptest.NewRequest("GET", "http://metrics.example.com/silent", nil)
+	manager.ServeHTTP(httptest.NewRecorder(), req)
+
+	w := httptest.NewRecorder()
+	metrics.Global.WritePrometheus(w, httptest.NewRequest("GET", "/metrics", nil))
+	body := w.Body.String()
+
+	assert.Contains(t, body, `route="$ok(tracked)"`, "tracked route should be labeled by its raw service declaration")
+	assert.NotContains(t, body, "metrics.example.com/tracked", "duration metrics must not be labeled by the raw request path")
+	assert.NotContains(t, body, `route="$ok(silent)"`, "a route tagged @no-metrics must not record duration metrics")
 }
 
 func TestManager_LoadBalancing(t *testing.T) {
