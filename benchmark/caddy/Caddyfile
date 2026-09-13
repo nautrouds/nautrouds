@@ -1,0 +1,30 @@
+{
+    admin off
+    servers :8443 {
+        protocols h1
+    }
+    servers :8444 {
+        protocols h1
+    }
+}
+
+http:// {
+    bind unix//var/run/bench/caddy/entry.sock
+
+    handle /builtin/health {
+        respond "Hello from Caddy built-in" 200
+    }
+    handle /proxy/* {
+        reverse_proxy unix//var/run/bench/backends/caddy/backend-service/node-0.sock
+    }
+}
+
+https://:8443 {
+    tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+    reverse_proxy unix//var/run/nautrouds/entrypoints/nautrouds-0.sock
+}
+
+https://:8444 {
+    tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+    reverse_proxy unix//var/run/bench/backends/caddy/backend-service/node-0.sock
+}

@@ -1,0 +1,5 @@
+# Built-in response benchmark route
+GET */builtin/health $ok("Hello from Nautrouds built-in")
+
+# Reverse-proxy benchmark route
+*/proxy/** backend-service
