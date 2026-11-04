@@ -20,6 +20,11 @@ type Edge struct {
 	GraftRollback int32
 }
 
+const (
+	graftCheckpointBits = 8
+	graftCheckpointMask = 1<<graftCheckpointBits - 1
+)
+
 type RouteTree struct {
 	FragmentPool    []byte // Contiguous memory for all path fragments
 	ActionsRegistry []byte // Registry of middleware & service identifiers
@@ -67,26 +72,14 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 		edge := &t.EdgePool[currentEdgeIdx]
 		node := &t.NodePool[edge.TargetID]
 
-		switch t.FragmentPool[edge.Offset] {
-		case Wildcard:
-			if edge.GraftRollback < 0 {
-				if node.EdgeCount == 0 {
-					checkpointIdx = ^edge.GraftRollback
-				} else {
-					childEdge := &t.EdgePool[node.EdgeOffset+node.EdgeCount-1]
-					if t.FragmentPool[childEdge.Offset] != WildcardGreedy || childEdge.GraftRollback != edge.GraftRollback {
-						checkpointIdx = ^edge.GraftRollback
-					}
-				}
-			}
-		case WildcardGreedy:
-			if edge.GraftRollback < 0 {
-				checkpointIdx = ^edge.GraftRollback
-			}
-		default:
+		if t.FragmentPool[edge.Offset] >= 3 {
 			if cursor == urlLen && node.Methods != 0 {
 				return node, true
 			}
+		} else if cursor < urlLen && node.Methods != 0 && (node.EdgeCount == 0 || t.EdgePool[node.EdgeOffset].GraftRollback != 0) {
+			// Graft edges are always appended after real children and never carry a zero GraftRollback, so a leading graft means no more specific path exists.
+			// Wildcard leaves with real children are accepted through their accept clone.
+			return node, true
 		}
 
 		matched := false
@@ -100,15 +93,15 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 
 			switch t.FragmentPool[childEdge.Offset] {
 			case Wildcard, WildcardGreedy:
-				switch {
-				case childEdge.GraftRollback > 0:
+				if childEdge.GraftRollback >= 0 {
 					cursor -= childEdge.GraftRollback
-				case childEdge.GraftRollback < 0:
-					cursor = cursorCheckpoints[^childEdge.GraftRollback]
-				default:
-					cursorCheckpoints[checkpointIdx] = cursor
-					checkpointIdx++
+				} else {
+					packed := ^childEdge.GraftRollback
+					checkpointIdx = packed & graftCheckpointMask
+					cursor = cursorCheckpoints[checkpointIdx] - packed>>graftCheckpointBits
 				}
+				cursorCheckpoints[checkpointIdx] = cursor
+				checkpointIdx++
 				currentEdgeIdx = childEdgeIdx
 				matched = true
 				break INNER
@@ -145,10 +138,6 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 					}
 				}
 			}
-		}
-
-		if t.FragmentPool[edge.Offset] < 3 && cursor < urlLen && node.Methods != 0 {
-			return node, true
 		}
 
 		if !matched {

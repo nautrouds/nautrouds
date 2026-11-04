@@ -241,6 +241,37 @@ func compressNode(n *buildNode) int {
 	return total
 }
 
+type graft struct {
+	target     Edge
+	checkpoint int32
+	length     int32
+}
+
+func (g graft) edge() Edge {
+	e := g.target
+	if g.checkpoint < 0 {
+		e.GraftRollback = g.length
+	} else {
+		e.GraftRollback = ^(g.checkpoint | g.length<<graftCheckpointBits)
+	}
+	if e.GraftRollback == 0 {
+		panic("[rtree] graft edge must not share the zero GraftRollback reserved for real edges")
+	}
+	return e
+}
+
+func (g graft) through(fragment []byte, depth int32) graft {
+	if g.checkpoint >= 0 {
+		return g
+	}
+	if fragment[0] == Wildcard || fragment[0] == WildcardGreedy {
+		g.checkpoint = depth - 1
+	} else {
+		g.length += int32(len(fragment))
+	}
+	return g
+}
+
 func (t *RouteTree) finalize(roots []buildEdge, estimatedLen int) {
 	t.NodePool = make([]RouteNode, 1) // 0 index is reserved/null
 	t.EdgePool = make([]Edge, 256)
@@ -248,75 +279,78 @@ func (t *RouteTree) finalize(roots []buildEdge, estimatedLen int) {
 	t.FragmentPool[0] = WildcardGreedy
 	t.FragmentPool[1] = Wildcard
 
-	var wildcardEdge *Edge
+	var fallback *graft
 	for i := range 256 {
-		if roots[i].Node != nil {
-			isWildcard := roots[i].Fragment[0] == Wildcard || roots[i].Fragment[0] == WildcardGreedy
+		if roots[i].Node == nil {
+			continue
+		}
+		isWildcard := roots[i].Fragment[0] == Wildcard || roots[i].Fragment[0] == WildcardGreedy
 
-			var wildcardIdx int32
-			if isWildcard {
-				wildcardIdx++
-			}
+		var depth int32
+		if isWildcard {
+			depth = 1
+		}
 
-			edge := t.flattenNode(&roots[i], wildcardEdge, wildcardIdx)
-			t.EdgePool[i] = edge
+		edge := t.flattenNode(&roots[i], fallback, depth)
+		t.EdgePool[i] = edge
 
-			if isWildcard {
-				wildcardEdge = &Edge{
-					TargetID: edge.TargetID,
-					Offset:   edge.Offset,
-					End:      edge.End,
-				}
-			}
+		if isWildcard {
+			fallback = &graft{target: edge, checkpoint: -1}
 		}
 	}
 }
 
-func (t *RouteTree) flattenNode(e *buildEdge, pw *Edge, pwIdx int32) Edge {
-	firstChar := e.Fragment[0]
-	isCurrentWildcard := (firstChar == Wildcard || firstChar == WildcardGreedy)
-
-	var wildcardEdge *Edge
-	wildcardIndex := pwIdx
-	if pw != nil {
-		edge := &Edge{
-			TargetID:      pw.TargetID,
-			Offset:        pw.Offset,
-			End:           pw.End,
-			GraftRollback: pw.GraftRollback,
-		}
-		if !isCurrentWildcard {
-			edge.GraftRollback += int32(len(e.Fragment))
-		}
-		wildcardEdge = edge
+func (t *RouteTree) flattenNode(e *buildEdge, inherited *graft, depth int32) Edge {
+	var ownFallback *graft
+	if inherited != nil {
+		g := inherited.through(e.Fragment, depth)
+		ownFallback = &g
 	}
 
+	isWildcardLeaf := (e.Fragment[0] == Wildcard || e.Fragment[0] == WildcardGreedy) && e.Node.Methods != 0
+	if isWildcardLeaf && len(e.Node.Edges) > 0 {
+		acceptEdges := []Edge{}
+		if ownFallback != nil {
+			acceptEdges = append(acceptEdges, ownFallback.edge())
+		}
+		acceptEdgeOffset := uint16(len(t.EdgePool))
+		t.EdgePool = append(t.EdgePool, acceptEdges...)
+		acceptID := uint32(len(t.NodePool))
+		t.NodePool = append(t.NodePool, RouteNode{
+			EdgeOffset:  acceptEdgeOffset,
+			EdgeCount:   uint16(len(acceptEdges)),
+			ActionIndex: e.Node.ActionIndex,
+			Methods:     e.Node.Methods,
+			Tags:        e.Node.Tags,
+		})
+		offset := uint32(e.Fragment[0]) - 1
+		ownFallback = &graft{
+			target:     Edge{TargetID: acceptID, Offset: offset, End: offset + 1},
+			checkpoint: depth - 1,
+		}
+	}
+
+	childFallback := ownFallback
 	edges := make([]Edge, 0, len(e.Node.Edges)+1)
 	for i := len(e.Node.Edges) - 1; i >= 0; i-- {
-		edge := t.flattenNode(&e.Node.Edges[i], wildcardEdge, wildcardIndex)
+		child := &e.Node.Edges[i]
+		isChildWildcard := child.Fragment[0] == Wildcard || child.Fragment[0] == WildcardGreedy
 
-		switch t.FragmentPool[edge.Offset] {
-		case Wildcard, WildcardGreedy:
-			wildcardEdge = &Edge{
-				TargetID: edge.TargetID,
-				Offset:   edge.Offset,
-				End:      edge.End,
-			}
-			if isCurrentWildcard {
-				if wildcardIndex == pwIdx {
-					wildcardIndex++
-				}
-				wildcardEdge.GraftRollback = 0 - wildcardIndex
-			}
+		childDepth := depth
+		if isChildWildcard {
+			childDepth++
+		}
+
+		edge := t.flattenNode(child, childFallback, childDepth)
+		if isChildWildcard {
+			childFallback = &graft{target: edge, checkpoint: -1}
 		}
 		edges = append(edges, edge)
 	}
 
-	if len(edges) > 0 {
-		slices.Reverse(edges)
-		if pw != nil {
-			edges = append(edges, *pw)
-		}
+	slices.Reverse(edges)
+	if ownFallback != nil {
+		edges = append(edges, ownFallback.edge())
 	}
 
 	edgeOffset := uint16(len(t.EdgePool))
@@ -325,7 +359,7 @@ func (t *RouteTree) flattenNode(e *buildEdge, pw *Edge, pwIdx int32) Edge {
 
 	var offset uint32
 	var end uint32
-	if isCurrentWildcard {
+	if e.Fragment[0] == Wildcard || e.Fragment[0] == WildcardGreedy {
 		offset = uint32(e.Fragment[0]) - 1
 		end = offset + 1
 	} else {
