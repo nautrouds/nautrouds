@@ -43,6 +43,7 @@ func Build(rawNodes []*RawNode) *RouteTree {
 
 	actionMap := make(map[string]uint32)
 	wildcardReg := regexp.MustCompile(`\*{2,}`)
+	insertedBy := make(map[*buildNode]*RawNode)
 
 	for _, raw := range rawNodes {
 		url := wildcardReg.ReplaceAll([]byte(raw.URL), []byte{WildcardGreedy})
@@ -68,7 +69,14 @@ func Build(rawNodes []*RawNode) *RouteTree {
 
 		t.ActionMetadata = append(t.ActionMetadata, actions...)
 
-		insert(roots, url, actionIndex, methodMask, tagMask)
+		leaf := insert(roots, url, actionIndex, methodMask, tagMask)
+		if leaf == nil {
+			continue
+		}
+		if previous, exists := insertedBy[leaf]; exists {
+			log.Printf("[rtree] Warning: route %q [%s] overrides previous route %q [%s]", raw.URL, raw.Methods, previous.URL, previous.Methods)
+		}
+		insertedBy[leaf] = raw
 	}
 
 	totalLen := compress(roots)
@@ -114,9 +122,9 @@ func (t *RouteTree) getOrCreateActionID(action string, actionMap map[string]uint
 	return actionID
 }
 
-func insert(roots []buildEdge, url []byte, actionIndex uint32, methods uint16, tags uint16) {
+func insert(roots []buildEdge, url []byte, actionIndex uint32, methods uint16, tags uint16) *buildNode {
 	if len(url) == 0 {
-		return
+		return nil
 	}
 
 	firstChar := url[0]
@@ -150,6 +158,7 @@ func insert(roots []buildEdge, url []byte, actionIndex uint32, methods uint16, t
 	currNode.ActionIndex = actionIndex
 	currNode.Methods = methods
 	currNode.Tags = tags
+	return currNode
 }
 
 func compress(roots []buildEdge) int {

@@ -1,8 +1,12 @@
 package rtree_test
 
 import (
+	"bytes"
 	"fmt"
+	"log"
 	"nautrouds/internal/rtree"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -115,4 +119,20 @@ func TestHostReversalAndVariableLengths(t *testing.T) {
 	nodeL, existsL := tree.Search(urlLong)
 	assert.True(t, existsL)
 	assert.Equal(t, "global-status-service", getServiceName(tree, nodeL.ActionIndex))
+}
+
+func TestDuplicateRouteWarnsOnOverride(t *testing.T) {
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+
+	tree := rtree.Build([]*rtree.RawNode{
+		{URL: "example.com/x", Service: "getter", Methods: "GET"},
+		{URL: "example.com/y", Service: "other", Methods: "GET"},
+		{URL: "example.com/x", Service: "poster", Methods: "POST"},
+	})
+	require.NotNil(t, tree)
+
+	assert.Contains(t, logs.String(), `[rtree] Warning: route "example.com/x" [POST] overrides previous route "example.com/x" [GET]`)
+	assert.Equal(t, 1, strings.Count(logs.String(), "Warning"))
 }
