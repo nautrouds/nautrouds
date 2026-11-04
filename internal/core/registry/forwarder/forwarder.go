@@ -40,6 +40,34 @@ var forbiddenHeaders = map[string]bool{
 	"Server":              true,
 }
 
+const (
+	DefaultMaxIdleConnsPerNode = 48
+	DefaultIdleConnTimeout     = 60 * time.Second
+)
+
+type Option func(*config)
+
+type config struct {
+	maxIdleConnsPerNode int
+	idleConnTimeout     time.Duration
+}
+
+func WithMaxIdleConnsPerNode(n int) Option {
+	return func(c *config) {
+		if n > 0 {
+			c.maxIdleConnsPerNode = n
+		}
+	}
+}
+
+func WithIdleConnTimeout(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.idleConnTimeout = d
+		}
+	}
+}
+
 type FailureForwarder struct {
 	SocketPath string
 	Error      error
@@ -59,14 +87,20 @@ type Forwarder struct {
 	transport    *dualTransport
 }
 
-func New(serviceName, nodePath string, weight int32, onFailure chan FailureForwarder) *Forwarder {
+func New(serviceName, nodePath string, weight int32, onFailure chan FailureForwarder, opts ...Option) *Forwarder {
+	cfg := config{maxIdleConnsPerNode: DefaultMaxIdleConnsPerNode, idleConnTimeout: DefaultIdleConnTimeout}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	dialContext := func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", nodePath)
 	}
 
 	h1Transport := &http.Transport{
 		DialContext:         dialContext,
-		MaxIdleConnsPerHost: 100,
+		MaxIdleConnsPerHost: cfg.maxIdleConnsPerNode,
+		IdleConnTimeout:     cfg.idleConnTimeout,
 		DisableCompression:  true,
 		DisableKeepAlives:   false,
 	}
@@ -77,6 +111,7 @@ func New(serviceName, nodePath string, weight int32, onFailure chan FailureForwa
 	h2Transport := &http.Transport{
 		DialContext:         dialContext,
 		MaxIdleConnsPerHost: 1,
+		IdleConnTimeout:     cfg.idleConnTimeout,
 		DisableCompression:  true,
 		DisableKeepAlives:   false,
 		Protocols:           h2Protocols,

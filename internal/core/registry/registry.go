@@ -22,7 +22,8 @@ type Registry struct {
 	unhealthy map[string]*ServiceSet
 	nodeMap   map[string]*nodeContext
 
-	failureChan chan forwarder.FailureForwarder
+	failureChan      chan forwarder.FailureForwarder
+	forwarderOptions []forwarder.Option
 }
 
 type ServiceSet struct {
@@ -135,21 +136,22 @@ type nodeContext struct {
 	forwarder   *forwarder.Forwarder
 }
 
-func newForwarder(serviceName, node string, failureChan chan forwarder.FailureForwarder) *forwarder.Forwarder {
+func (r *Registry) newForwarder(serviceName, node string) *forwarder.Forwarder {
 	weight, ok := loadbalance.ParseNodeWeight(node)
 	if !ok {
 		logs.Out.Warn("Invalid node weight suffix, defaulting to 1",
 			zap.String("service", serviceName), zap.String("path", node))
 	}
-	return forwarder.New(serviceName, node, weight, failureChan)
+	return forwarder.New(serviceName, node, weight, r.failureChan, r.forwarderOptions...)
 }
 
-func NewRegistry() (*Registry, error) {
+func NewRegistry(forwarderOptions ...forwarder.Option) (*Registry, error) {
 	r := &Registry{
-		services:    make(map[string]*ServiceSet),
-		unhealthy:   make(map[string]*ServiceSet),
-		nodeMap:     make(map[string]*nodeContext),
-		failureChan: make(chan forwarder.FailureForwarder, 100),
+		services:         make(map[string]*ServiceSet),
+		unhealthy:        make(map[string]*ServiceSet),
+		nodeMap:          make(map[string]*nodeContext),
+		failureChan:      make(chan forwarder.FailureForwarder, 100),
+		forwarderOptions: forwarderOptions,
 	}
 
 	go r.listenFailures()
@@ -278,7 +280,7 @@ func (r *Registry) ApplyFullScan(baseDir string, byService map[string]map[string
 			if _, exists := r.nodeMap[node]; !exists {
 				r.nodeMap[node] = &nodeContext{
 					serviceName: svcName,
-					forwarder:   newForwarder(svcName, node, r.failureChan),
+					forwarder:   r.newForwarder(svcName, node),
 				}
 			}
 
@@ -350,7 +352,7 @@ func (r *Registry) ApplyServiceScan(baseDir string, serviceName string, discover
 		if _, exists := r.nodeMap[node]; !exists {
 			r.nodeMap[node] = &nodeContext{
 				serviceName: serviceName,
-				forwarder:   newForwarder(serviceName, node, r.failureChan),
+				forwarder:   r.newForwarder(serviceName, node),
 			}
 		}
 

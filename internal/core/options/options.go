@@ -7,21 +7,24 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"time"
 )
 
 type Options struct {
-	ConfigPath        string
-	NtucPath          string
-	ServicesDir       string
-	ServicesDirMode   os.FileMode
-	EntrypointDir     string
-	EntrypointDirMode os.FileMode
-	EntrypointCount   int
-	LogLevel          string
-	InstanceID        string
-	MetricsPath       string
-	MetricsSockMode   os.FileMode
-	DefaultWelcome    bool
+	ConfigPath          string
+	NtucPath            string
+	ServicesDir         string
+	ServicesDirMode     os.FileMode
+	EntrypointDir       string
+	EntrypointDirMode   os.FileMode
+	EntrypointCount     int
+	LogLevel            string
+	InstanceID          string
+	MetricsPath         string
+	MetricsSockMode     os.FileMode
+	DefaultWelcome      bool
+	MaxIdleConnsPerNode int
+	IdleConnTimeout     time.Duration
 }
 
 func Load() *Options {
@@ -37,6 +40,8 @@ func Load() *Options {
 	metricsPathPtr := EnvString("metrics-socket", "NAUTROUDS_METRICS_SOCKET", "", "Metrics collector socket path (relative to services dir)")
 	metricsSockModePtr := EnvString("metrics-socket-mode", "NAUTROUDS_METRICS_SOCKET_MODE", "0666", "Permission mode for the metrics collector socket (octal, e.g. 0660)")
 	defaultWelcomePtr := EnvBool("default-welcome", "NAUTROUDS_DEFAULT_WELCOME", true, "Serve a built-in welcome page for all requests when the config file is missing, instead of failing to start")
+	maxIdleConnsPtr := EnvString("max-idle-conns-per-node", "NAUTROUDS_MAX_IDLE_CONNS_PER_NODE", "48", "Maximum idle keep-alive connections kept open to each backend node")
+	idleConnTimeoutPtr := EnvString("idle-conn-timeout", "NAUTROUDS_IDLE_CONN_TIMEOUT", "60s", "How long an idle keep-alive connection to a backend node stays open before it is closed")
 	showVersionPtr := flag.Bool("version", false, "Print version and exit")
 
 	flag.Parse()
@@ -54,22 +59,26 @@ func Load() *Options {
 	servicesDirMode := mustParseFileMode("services-dir-mode", *servicesDirModePtr)
 	entrypointDirMode := mustParseFileMode("entrypoint-dir-mode", *entrypointDirModePtr)
 	metricsSockMode := mustParseFileMode("metrics-socket-mode", *metricsSockModePtr)
+	maxIdleConns := mustParsePositiveInt("max-idle-conns-per-node", *maxIdleConnsPtr)
+	idleConnTimeout := mustParsePositiveDuration("idle-conn-timeout", *idleConnTimeoutPtr)
 
 	reg := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
 	return &Options{
-		ConfigPath:        *configPtr,
-		NtucPath:          *ntucPtr,
-		ServicesDir:       *servicesDirPtr,
-		ServicesDirMode:   servicesDirMode,
-		EntrypointDir:     *entrypointDirPtr,
-		EntrypointDirMode: entrypointDirMode,
-		EntrypointCount:   entrypointCount,
-		LogLevel:          *logLevelPtr,
-		InstanceID:        reg.ReplaceAllString(*instanceIDPtr, "_"),
-		MetricsPath:       *metricsPathPtr,
-		MetricsSockMode:   metricsSockMode,
-		DefaultWelcome:    *defaultWelcomePtr,
+		ConfigPath:          *configPtr,
+		NtucPath:            *ntucPtr,
+		ServicesDir:         *servicesDirPtr,
+		ServicesDirMode:     servicesDirMode,
+		EntrypointDir:       *entrypointDirPtr,
+		EntrypointDirMode:   entrypointDirMode,
+		EntrypointCount:     entrypointCount,
+		LogLevel:            *logLevelPtr,
+		InstanceID:          reg.ReplaceAllString(*instanceIDPtr, "_"),
+		MetricsPath:         *metricsPathPtr,
+		MetricsSockMode:     metricsSockMode,
+		DefaultWelcome:      *defaultWelcomePtr,
+		MaxIdleConnsPerNode: maxIdleConns,
+		IdleConnTimeout:     idleConnTimeout,
 	}
 }
 
@@ -80,6 +89,24 @@ func mustParseFileMode(flagName, s string) os.FileMode {
 		os.Exit(1)
 	}
 	return os.FileMode(mode)
+}
+
+func mustParsePositiveInt(flagName, s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		fmt.Fprintf(os.Stderr, "invalid --%s %q: must be a positive integer\n", flagName, s)
+		os.Exit(1)
+	}
+	return n
+}
+
+func mustParsePositiveDuration(flagName, s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		fmt.Fprintf(os.Stderr, "invalid --%s %q: must be a positive duration such as 60s\n", flagName, s)
+		os.Exit(1)
+	}
+	return d
 }
 
 func EnvString(name, envKey, fallback, usage string) *string {

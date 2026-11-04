@@ -10,6 +10,7 @@ import (
 	"nautrouds/internal/core/options"
 	"nautrouds/internal/core/proxy"
 	"nautrouds/internal/core/registry"
+	"nautrouds/internal/core/registry/forwarder"
 	"nautrouds/internal/core/watcher"
 	"os"
 	"path/filepath"
@@ -72,7 +73,10 @@ func run(lc *lifecycle.LifecycleManager, opts *options.Options) error {
 	defer fileLock.Unlock()
 
 	// Initialize Registry and Watcher for dynamic node discovery
-	reg, err := registry.NewRegistry()
+	reg, err := registry.NewRegistry(
+		forwarder.WithMaxIdleConnsPerNode(opts.MaxIdleConnsPerNode),
+		forwarder.WithIdleConnTimeout(opts.IdleConnTimeout),
+	)
 	if err != nil {
 		return fmt.Errorf("registry initialization failed: %w", err)
 	}
