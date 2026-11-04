@@ -66,6 +66,10 @@ func Parse(r io.Reader) (*rtree.RouteTree, error) {
 
 		for _, p := range parts {
 
+			if p.Flag == tokenizer.Quoted && p.Value == "" {
+				fmt.Printf("warning: line %d: empty quoted field is ignored: %q\n", lineCount, line)
+			}
+
 			if ruleline.IsRule(p) {
 
 				if r := rule.Flush(); r != nil {

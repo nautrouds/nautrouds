@@ -6,6 +6,7 @@ import (
 	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/builtins/virtualservices"
 	"nautrouds/internal/rtree"
+	"slices"
 	"strings"
 
 	"github.com/google/shlex"
@@ -34,6 +35,10 @@ func (t *Tracker) Parse(part *tokenizer.Part) error {
 	fields, err := shlex.Split(v)
 	if err != nil {
 		return fmt.Errorf("invalid rule syntax: %s", v)
+	}
+
+	if slices.Contains(fields, "") {
+		fmt.Printf("warning: line %d: empty quoted field in rule: %q\n", part.Line, v)
 	}
 
 	var methods, rawURL, service string
