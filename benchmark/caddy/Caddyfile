@@ -8,6 +8,13 @@
     }
 }
 
+(upstream_pool) {
+    transport http {
+        keepalive_idle_conns 1024
+        keepalive_idle_conns_per_host 1024
+    }
+}
+
 http:// {
     bind unix//var/run/bench/caddy/entry.sock
 
@@ -15,16 +22,22 @@ http:// {
         respond "Hello from Caddy built-in" 200
     }
     handle /proxy/* {
-        reverse_proxy unix//var/run/bench/backends/caddy/backend-service/node-0.sock
+        reverse_proxy unix//var/run/bench/backends/caddy/backend-service/node-0.sock {
+            import upstream_pool
+        }
     }
 }
 
 https://:8443 {
     tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
-    reverse_proxy unix//var/run/nautrouds/entrypoints/nautrouds-0.sock
+    reverse_proxy unix//var/run/nautrouds/entrypoints/nautrouds-0.sock {
+        import upstream_pool
+    }
 }
 
 https://:8444 {
     tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
-    reverse_proxy unix//var/run/bench/backends/caddy/backend-service/node-0.sock
+    reverse_proxy unix//var/run/bench/backends/caddy/backend-service/node-0.sock {
+        import upstream_pool
+    }
 }
