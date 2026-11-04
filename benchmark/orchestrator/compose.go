@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,45 +44,49 @@ func composeCommand(composeFile, profile string, env []string, args ...string) *
 	return cmd
 }
 
-func composeBuild(composeFile string, env []string, services ...string) error {
-	args := append([]string{"compose", "-f", composeFile, "build"}, services...)
-	cmd := exec.Command("docker", args...)
-	cmd.Env = env
+func runStreaming(cmd *exec.Cmd) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func composeBuild(composeFile string, services ...string) error {
+	args := append([]string{"compose", "-f", composeFile, "build"}, services...)
+	return runStreaming(exec.Command("docker", args...))
 }
 
 func composeUp(composeFile, profile string, env []string) error {
-	cmd := composeCommand(composeFile, profile, env, "up", "-d")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return runStreaming(composeCommand(composeFile, profile, env, "up", "-d", "--force-recreate"))
 }
 
 func composeDown(composeFile, profile string, env []string) error {
-	cmd := composeCommand(composeFile, profile, env, "down", "-v")
-	cmd.Stdout = os.Stdout
+	return runStreaming(composeCommand(composeFile, profile, env, "down", "-v", "--timeout", "5"))
+}
+
+func composeRunOneOff(composeFile, service string, extraEnv []string, command ...string) (string, error) {
+	args := append([]string{"compose", "-f", composeFile, "run", "--rm", "--no-deps", "-T", service}, command...)
+	cmd := exec.Command("docker", args...)
+	cmd.Env = append(os.Environ(), extraEnv...)
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	out, err := cmd.Output()
+	return string(out), err
 }
 
-func composeRunClient(composeFile, profile string, env []string, benchRegex, benchtime string) (string, error) {
-	cmd := composeCommand(composeFile, profile, env,
-		"run", "--rm", "--no-deps", "client",
-		"go", "test", "-bench="+benchRegex, "-benchtime="+benchtime, "-run=^$", "./...",
-	)
-	var buf bytes.Buffer
-	cmd.Stdout = io.MultiWriter(os.Stdout, &buf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
-	err := cmd.Run()
-	return buf.String(), err
+func composeContainerID(composeFile, profile string, env []string, service string) (string, error) {
+	out, err := composeCommand(composeFile, profile, env, "ps", "-q", service).Output()
+	if err != nil {
+		return "", fmt.Errorf("docker compose ps -q %s: %w", service, err)
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		return "", fmt.Errorf("no running container for service %q", service)
+	}
+	return strings.Fields(id)[0], nil
 }
 
-func waitHealthy(ctx context.Context, composeFile, profile string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+func waitHealthy(ctx context.Context, composeFile, profile string, env []string) error {
 	for {
-		out, err := composeCommand(composeFile, profile, os.Environ(), "ps", "--format", "json").Output()
+		out, err := composeCommand(composeFile, profile, env, "ps", "--format", "json").Output()
 		if err != nil {
 			return fmt.Errorf("docker compose ps: %w", err)
 		}
@@ -89,25 +94,70 @@ func waitHealthy(ctx context.Context, composeFile, profile string, timeout time.
 		if err != nil {
 			return fmt.Errorf("parse compose ps output: %w", err)
 		}
-		if len(services) > 0 && allHealthy(services) {
+		if len(services) > 0 && allReady(services) {
 			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for profile %q services to become healthy", profile)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("timed out waiting for profile %q services to become healthy: %w", profile, ctx.Err())
 		case <-time.After(2 * time.Second):
 		}
 	}
 }
 
-func allHealthy(services []composeService) bool {
+func allReady(services []composeService) bool {
 	for _, s := range services {
-		if s.Health != "healthy" {
+		if s.State != "running" {
+			return false
+		}
+		if s.Health != "" && s.Health != "healthy" {
 			return false
 		}
 	}
 	return true
+}
+
+func dockerExecOutput(containerID string, command ...string) (string, error) {
+	args := append([]string{"exec", containerID}, command...)
+	out, err := exec.Command("docker", args...).Output()
+	return string(out), err
+}
+
+const cgroupCPUScript = `if [ -f /sys/fs/cgroup/cpu.stat ]; then
+  awk '$1 == "usage_usec" { print "1000", $2 }' /sys/fs/cgroup/cpu.stat
+else
+  echo "1 $(cat /sys/fs/cgroup/cpuacct/cpuacct.usage)"
+fi`
+
+const cgroupMemoryScript = `if [ -f /sys/fs/cgroup/memory.current ]; then
+  echo "1 $(cat /sys/fs/cgroup/memory.current)"
+else
+  echo "1 $(cat /sys/fs/cgroup/memory/memory.usage_in_bytes)"
+fi`
+
+func readCgroupNumber(containerID, script string) (float64, error) {
+	out, err := dockerExecOutput(containerID, "sh", "-c", script)
+	if err != nil {
+		return 0, fmt.Errorf("read cgroup stat from %s: %w", containerID, err)
+	}
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return 0, fmt.Errorf("unexpected cgroup stat %q from %s", out, containerID)
+	}
+	multiplier, err1 := strconv.ParseFloat(fields[0], 64)
+	value, err2 := strconv.ParseFloat(fields[1], 64)
+	if err1 != nil || err2 != nil {
+		return 0, fmt.Errorf("parse cgroup stat %q from %s", out, containerID)
+	}
+	return multiplier * value, nil
+}
+
+func readCPUSeconds(containerID string) (float64, error) {
+	ns, err := readCgroupNumber(containerID, cgroupCPUScript)
+	return ns / 1e9, err
+}
+
+func readMemoryMB(containerID string) (float64, error) {
+	bytes, err := readCgroupNumber(containerID, cgroupMemoryScript)
+	return bytes / (1 << 20), err
 }
