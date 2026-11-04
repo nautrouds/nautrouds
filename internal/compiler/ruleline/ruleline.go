@@ -54,6 +54,13 @@ func (t *Tracker) Parse(part *tokenizer.Part) error {
 	if ok, bad := rtree.ValidateMethods(methods); !ok {
 		return fmt.Errorf("unknown HTTP method: %s", bad)
 	}
+	if strings.Trim(methods, ", \t") == "" {
+		return fmt.Errorf("missing HTTP method: %s", v)
+	}
+
+	if service == "" {
+		return fmt.Errorf("empty service name: %s", v)
+	}
 
 	if strings.HasPrefix(service, "$") {
 		valid, name := virtualservices.IsValid(service)

@@ -23,6 +23,10 @@ func (t *Tracker) TryParse(part *tokenizer.Part) error {
 	}
 
 	v := part.String()
+	if part.Value == "" {
+		return fmt.Errorf("empty middleware name: %s", v)
+	}
+
 	switch {
 	case part.Value == "$mmfg":
 		if err := mmfg.ValidateDirective(v); err != nil {
