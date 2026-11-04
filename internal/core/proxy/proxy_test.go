@@ -5,6 +5,7 @@ import (
 	"nautrouds/internal/core/proxy"
 	"nautrouds/internal/core/registry"
 	"nautrouds/internal/rtree"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -137,38 +138,33 @@ func TestManager_LoadBalancing(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	// Create dummy socket files to satisfy Registry.Scan
 	svcDir := filepath.Join(tmpDir, "lb-service")
-	os.MkdirAll(svcDir, 0755)
-	node1 := filepath.Join(svcDir, "node1.sock")
-	node2 := filepath.Join(svcDir, "node2.sock")
-	os.WriteFile(node1, []byte(""), 0644)
-	os.WriteFile(node2, []byte(""), 0644)
+	require.NoError(t, os.MkdirAll(svcDir, 0755))
+
+	nodes := []string{
+		filepath.Join(svcDir, "node1.sock"),
+		filepath.Join(svcDir, "node2.sock"),
+	}
+	for _, node := range nodes {
+		l, err := net.Listen("unix", node)
+		require.NoError(t, err)
+		t.Cleanup(func() { l.Close() })
+	}
 
 	reg, err := registry.NewRegistry()
 	require.NoError(t, err)
-	err = reg.ApplyServiceScan(tmpDir, "lb-service", []string{
-		node1, node2,
-	})
-	require.NoError(t, err)
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "lb-service", nodes))
 
 	_ = proxy.NewManager(reg, nil)
 
-	// Verify internal state of registry for the service
 	state := reg.GetState()
-	nodes, ok := state["lb-service"]
+	registered, ok := state["lb-service"]
 	require.True(t, ok)
-	assert.Len(t, nodes, 2)
+	assert.Len(t, registered, 2)
 
-	// Verify that GetForwarders cycles through nodes.
-	f1 := reg.GetForwarders("lb-service")[0]
-	f2 := reg.GetForwarders("lb-service")[0]
-	f3 := reg.GetForwarders("lb-service")[0]
-
-	// We can't easily check private fields, but we know it's round-robin.
-	// If it was the same node, f1 and f2 would be identical in a way we can't easily see here,
-	// but we've verified the state has 2 nodes.
-	assert.NotNil(t, f1)
-	assert.NotNil(t, f2)
-	assert.NotNil(t, f3)
+	for range 3 {
+		forwarders := reg.GetForwarders("lb-service")
+		require.NotEmpty(t, forwarders)
+		assert.NotNil(t, forwarders[0])
+	}
 }
