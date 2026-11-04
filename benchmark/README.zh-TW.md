@@ -1,144 +1,136 @@
+[English](README.md) | 繁體中文
+
 # UDS Proxy Benchmark：Nautrouds vs Caddy vs Nginx
 
-### 比較 Nautrouds、Caddy、Nginx 作為純 UDS reverse proxy 的效能
+比較 Nautrouds、Caddy、Nginx 作為 UDS reverse proxy 的表現。
+- client、backend、proxy 各自使用獨立的實體核心
+- 被 client 或 backend 卡住的結果會被標記
+- proxy 成本以 **每個 request 的 CPU µs** 表示，數據來自 proxy container 的 cgroup
+- 搭配 `client → backend` baseline，可以直接看出每多一個 hop 增加多少 latency
 
-#### **Built-in response**(`/builtin/health`）
-* proxy 直接回應，不經過 backend。
-#### **Reverse-proxy response**(`/proxy/*`)
-* proxy 轉發至專屬的 backend，該 backend 本身也只能透過 Unix Domain Socket 存取。
+## 測試路徑
 
-
-### TCP+TLS edge 情境
-Nautrouds 不支援 TLS ，因此實際部署情境會是由 edge proxy ( Caddy/Nginx ) 在 TCP port 上終止 TLS 後轉發：
-
-#### **`<edge>` TLS → Nautrouds → backend** 
-- Caddy/Nginx 在 `:8443` 終止 TLS，接著透過 UDS 交給 Nautrouds，再由 Nautrouds 透過 UDS 轉發給 backend。
-
-#### **`<edge>` TLS → backend（略過 Nautrouds）**
-- 同一個 edge proxy 在 `:8444` 終止 TLS，直接透過 UDS reverse-proxy 到自己的 backend，完全略過 Nautrouds。
-
-
-這樣可以獨立出「在 TLS-terminating edge proxy 後面插入 Nautrouds 作為額外的 internal UDS hop」所增加的邊際成本，對比讓 Caddy/Nginx 自己處理全部流程的情況。
-
----
-
-## Topology
-
-所有通訊都走 UDS——不對外開放任何 TCP port。每個 proxy 都有自己獨立的 socket 子目錄與專屬的 backend instance。使用了兩個 named volume：
-
-- `nautrouds-sockets`（掛載於 `/var/run/nautrouds`）— 只給 `nautrouds` 與 `backend-nautrouds` 容器使用。
-- `bench-sockets`（掛載於 `/var/run/bench`）— 由 `caddy`、`backend-caddy`、`nginx`、`backend-nginx` 共用。
-
-```
-/var/run/nautrouds/
-  entrypoints/nautrouds-0.sock   <- Nautrouds entry socket
-  services/backend-service/node-0.sock
-
-/var/run/bench/
-  caddy/entry.sock                     <- Caddy entry socket
-  nginx/entry.sock                     <- Nginx entry socket
-  backends/
-    caddy/backend-service/node-0.sock
-    nginx/backend-service/node-0.sock
-```
-
-`client` 容器同時掛載這兩個 volume，以便存取所有 socket。
-
-## Stages（分階段）
-
-`docker-compose.yml` 把每個 server 端容器都掛在一個 Compose profile 底下,一個 stage 對應一個 profile，所以不帶 `--profile` 執行 `docker compose up` 什麼都不會啟動。同一時間永遠只有一組 proxy stack 在跑：
-
-| profile | 容器 | 會跑的 benchmark |
-|---|---|---|
-| `nautrouds-solo` | `nautrouds` | `NautroudsBuiltin` |
-| `nautrouds-proxy` | `nautrouds`、`backend-nautrouds` | `NautroudsProxy` |
-| `caddy-solo` | `caddy` | `CaddyBuiltin` |
-| `caddy-proxy` | `caddy`、`backend-caddy` | `CaddyProxy`、`CaddyTLSDirectProxy` |
-| `nginx-solo` | `nginx` | `NginxBuiltin` |
-| `nginx-proxy` | `nginx`、`backend-nginx` | `NginxProxy`、`NginxTLSDirectProxy` |
-| `caddy-tls` | `caddy`、`nautrouds`、`backend-nautrouds` | `CaddyTLSNautroudsProxy` |
-| `nginx-tls` | `nginx`、`nautrouds`、`backend-nautrouds` | `NginxTLSNautroudsProxy` |
-
-`*-solo` 這幾個 stage 會完全獨立跑 built-in（不經 backend）的 benchmark——沒有其他 proxy、backend，也沒有任何不相關的容器被 pin 在同一批核心上——這是最乾淨的純 proxy overhead 訊號，也是對任何 noisy neighbor 最敏感的測項。
-
-### CPU 隔離
-
-同一個 stage 內，server 端容器（proxy 本身加上它自己的 backend）共用一組由 `SERVER_CPUSET` 環境變數控制的 `cpuset`。Orchestrator（見下方）會依序掃過三個分級：
-
-| tier | cpuset（預設 6 核心 pool） |
+| category | 路徑 |
 |---|---|
-| `1` | `0` |
-| `half` | `0-2` |
-| `all` | `0-5` |
+| `direct` | client → backend（baseline） |
+| `uds_builtin` | client → proxy，由 proxy 直接回應 `/builtin/health` |
+| `uds_proxy` | client → proxy → backend |
+| `tls_direct` | client → Caddy/Nginx（TLS `:8444`）→ backend |
+| `tls_via_nautrouds` | client → Caddy/Nginx（TLS `:8443`）→ Nautrouds → backend |
 
-`client` 容器被 pin 在單一顆專屬核心（`CLIENT_CPUSET`，預設是緊接在 server pool 後面那顆，例如核心 `6`），跟 server pool 完全不重疊——load generator 本身永遠不會是被搶佔的資源，整次執行唯一被掃描的變因就是 server 端拿到幾顆核心。所有容器都拿掉了 `deploy.resources.limits.cpus` 這層 quota；核心預算完全由 `cpuset` 決定，避免「核心數效應」跟「quota 效應」混在數字裡分不清。
+Nautrouds 不處理 TLS，實際部署時前面會放 Caddy 或 Nginx。
 
-因為 `cpuset` 把 client 鎖在單一核心，容器內回報的 `GOMAXPROCS` 會自動變成 `1`（Go runtime 是透過 `sched_getaffinity` 讀取 affinity mask 判斷的）。並發量如何在這個限制下仍然有意義，見下方 [Client](#client) 小節。
+比較 `tls_via_nautrouds` 和 `tls_direct`，就能看出在 TLS edge 後面加上 Nautrouds 的額外成本。
 
-Reverse-proxy 情境使用 `examples/backend/main.go` 作為後端，三個 proxy 共用同一份不修改。
+## Workload
 
-### TLS edge 情境
+| workload | 形式 | 觀察重點 |
+|---|---|---|
+| `latency-c1` | 1 條連線，closed-loop | 無負載下每個 hop 的 latency |
+| `throughput-c64` | 64 條連線，closed-loop | 最大 throughput |
+| `throughput-c512` | 512 條連線，closed-loop | 高並發 |
+| `rate-<n>` | 64 條連線，固定 req/s 的 open-loop | 相同負載下的 latency |
+| `conn-per-request` | 64 條連線，`Connection: close` | accept/dial 與 TLS handshake 成本 |
+| `body-64k` / `body-1m` | 大型 response body | 複製與 streaming 成本 |
+| `upload-64k` | 帶 64 KiB body 的 POST | request body streaming |
+| `slow-backend-10ms` | 256 條連線，backend 延遲 10 ms | 大量 in-flight request |
 
-Caddy 與 Nginx 各自額外開放兩個 internal-network TCP port：
+`body-*`、`upload-64k`、`slow-backend-10ms` 只會跑在有 backend 的路徑上。
 
-- `:8443` — 終止 TLS 後，透過 UDS reverse-proxy 到 Nautrouds 的 entry socket（為此 `nautrouds-sockets` 同時掛載進 `caddy` 與 `nginx`）。
-- `:8444` — 終止 TLS 後，透過 UDS reverse-proxy 直接到該 proxy 自己的 backend，略過 Nautrouds。
+比較 latency 時看 `latency-c1` 和 `rate-<n>`。closed-loop 飽和時的 latency 主要是排隊時間。
 
-兩個 port 都使用同一組 self-signed cert/key（位於 `benchmark/tls/{cert,key}.pem`，ECDSA P-256，僅供 benchmark 使用，不含機敏資訊），確保雙方的 TLS handshake 成本一致。兩者也都固定使用 HTTP/1.1（Caddy 的 `protocols h1`、Nginx 未設定 `http2 on;` 的預設值），讓比較只聚焦在 TLS/hop 的額外開銷，而不混入 h1 vs h2 的差異。Client 端使用 `InsecureSkipVerify`，因為這是 self-signed 的 benchmark 憑證。
+比較容量時，看 `throughput-*` 搭配 `proxy CPU µs/req`。
 
-Caddy 與 Nginx 都不會自行建立 UDS socket 的父目錄，所以它們的 `command:` 都包了一層 `mkdir -p <dir> && exec <proxy> ...` 先建目錄。Nginx 另外在偵測到上次執行殘留的 stale socket file 時會直接綁定失敗（`AddrInUse`），所以它的 command 在啟動前還會多做一次 `rm -f <socket>`；Caddy 則會自動偵測並取代 stale unix socket，不需要這個 workaround。
+## 公平設定
+
+- 三者都關閉 access log。
+- 三者的 upstream keep-alive 都設為 1024 條 idle connection：
+  - Nginx：`keepalive`
+  - Caddy：`keepalive_idle_conns_per_host`
+  - Nautrouds：`NAUTROUDS_MAX_IDLE_CONNS_PER_NODE`
+- Nginx 設定 `keepalive_requests 1000000`，避免每 1000 個 request 就關閉連線。
+- Nginx 保留預設的 response buffering，但設定 `proxy_max_temp_file_size 0`，大型 response 不會寫入 temp file。
+- Nginx 關閉 `proxy_request_buffering`，upload 跟另外兩者一樣用 streaming 傳送。
+- Nginx 的 `worker_processes` 設為 proxy 可用的 CPU 數。
+- Caddy 和 Nautrouds 的 `GOMAXPROCS` 會自動依 cpuset 設定。
+
+## CPU 分配
+
+Orchestrator 讀取 CPU topology，把實體核心切成三個互不重疊的 pool：
+
+| pool | 預設 | flag |
+|---|---|---|
+| client | 2 顆 | `-client-cores` |
+| backend | 1 顆 | `-backend-cores` |
+| proxy | 其餘全部 | `-proxy-cores` |
+
+- 預設每顆實體核心只用第一個 hardware thread，不同 pool 不會透過 SMT 共用同一顆核心。
+- proxy pool 會依序測試 `1`、`一半`、`全部` 的核心數，對應 tier `1c`、`2c`……
+- 所有 container 都沒有 CPU quota，只用 `cpuset` 限制，避免 CFS throttling 干擾數據。
+
+## 量測流程
+
+每種 proxy 組合是一個 Compose profile，例如 `baseline`、`nautrouds-proxy`、`caddy-tls`。
+
+同一時間只會啟動一個 profile，每個 profile 跑完都會先 `down -v`，才啟動下一個。
+
+所有 container 都 healthy 之後，還會實際對每個 target 發送 request，確認回應 2xx 且 body 大小正確，才開始量測。
+
+每個 run 的步驟：
+
+1. `loadgen` 先 warmup，保持連線不中斷並等待開始訊號。
+2. Orchestrator 讀取各 container 的 cgroup CPU 用量，然後開始量測。
+3. 量測到一半時取樣 memory；結束時再讀一次 CPU。
+
+各 rep 交錯執行，讓緩慢的效能飄移平均分散到每一列。報告呈現各 rep 的 median。
+
+## 報告解讀
+
+- `Δp50 vs direct`：相對 `Direct` baseline 增加的 latency。
+- `proxy CPU µs/req`：最主要的效率指標。
+- `proxy-bound` / `backend-bound` / `client-bound`：該方用掉 85% 以上的核心。
+  - throughput 類的列只有標示 `proxy-bound` 時，數字才代表 proxy 的上限。
+- `rate-missed`：open-loop 實際速率低於目標的 95%。
+- `client-late`：open-loop dispatcher 送出延遲的 p99 同時超過 100 µs 與量到的 p99 latency 的 10%，latency 不可信。
+- `body-mismatch`：response 大小與要求的不符。
+- `errors(n)`：I/O 失敗，或收到非 2xx response。
+
+只要有任何一列出現 `errors`、`client-late` 或 `body-mismatch`，整次執行就判定為 FAIL。
 
 ## 執行方式
-
-整個矩陣（8 個 stage × 3 個核心分級 = 24 次執行）由 `benchmark/orchestrator` 底下一支小型 Go 程式驅動。`run-benchmark.sh` 只是包在外面的一層薄殼：
 
 ```sh
 ./run-benchmark.sh
 ```
 
-等同於：
+用預設值跑完整個矩陣大約要 2 小時多。
+
+縮小範圍：
 
 ```sh
-cd benchmark && go run ./orchestrator
+cd benchmark
+go run ./orchestrator -stages baseline,nautrouds-proxy -workloads latency-c1,throughput-c64 -reps 1
 ```
 
-對每一組 (stage, tier)，orchestrator 會設定 `SERVER_CPUSET`/`CLIENT_CPUSET`、執行 `docker compose --profile <stage> up -d --build`、輪詢 `docker compose ps --format json` 直到所有容器都回報 `healthy`、執行 `docker compose --profile <stage> run --rm client go test -bench=<該 stage 的 benchmark> ...`，接著**不論成功或失敗**都會用 `docker compose --profile <stage> down -v` 把這個 stage 清乾淨，才會進到下一組。容器不會跨 stage 或跨 tier 被重用，數字不會被前一次執行留下的殘留狀態拖著跑偏。
-
-可用參數（皆為選填）：
-
-| flag | 預設值 | 說明 |
+| flag | 預設 | 說明 |
 |---|---|---|
-| `-compose-file` | `docker-compose.yml` | compose 檔案路徑 |
-| `-results-dir` | `results` | 最終報告輸出目錄 |
-| `-server-cores` | `6` | server 端 cpuset pool 的核心數；tier 就是這個數字的 1 / 一半 / 全部 |
-| `-client-core` | 同 server-cores | client 被 pin 在哪顆核心 |
-| `-benchtime` | `5s` | 直接傳給 `go test -benchtime` |
-| `-healthy-timeout` | `90s` | 等待一個 stage 的容器變 healthy 的最長時間 |
-| `-stages` | （全部） | 逗號分隔的 stage profile 子集，例如 `-stages=nautrouds-solo,caddy-solo` |
+| `-proxy-cores` | `0`（其餘全部） | proxy pool 的實體核心數 |
+| `-backend-cores` | `1` | backend 的實體核心數 |
+| `-client-cores` | `2` | load generator 的實體核心數 |
+| `-smt` | `false` | 是否一併使用 SMT sibling |
+| `-duration` | `5s` | 每個 run 的量測時間 |
+| `-warmup` | `2s` | 每個 run 的 warmup 時間 |
+| `-reps` | `3` | 每一列的重複次數 |
+| `-rates` | `5000,20000` | open-loop 的目標 req/s |
+| `-stages` | 全部 | 以逗號分隔的 profile |
+| `-workloads` | 全部 | 以逗號分隔的 workload |
+| `-healthy-timeout` | `90s` | 等待 container 變成 healthy 的上限 |
+| `-compose-file` | `docker-compose.yml` | compose 檔 |
+| `-results-dir` | `results` | 輸出目錄 |
 
-執行過程只會產生兩個檔案：`results/<timestamp>.md` 與 `results/latest.md`。沒有中間的 per-stage log 檔——orchestrator 做的每件事都會同時即時印到 stdout。
+輸出檔案：
 
-若想手動只跑單一 stage（例如在除錯 Caddyfile 時）：
+- `results/<timestamp>.md`：報告
+- `results/<timestamp>.json`：原始量測資料
+- `results/latest.md`：最新一次報告的副本
 
-```sh
-SERVER_CPUSET=0-5 CLIENT_CPUSET=6 docker compose --profile caddy-proxy up -d --build
-docker compose --profile caddy-proxy run --rm client go test -bench=BenchmarkCaddyProxy -run=^$ ./...
-docker compose --profile caddy-proxy down -v
-```
-
-## Client
-
-`benchmark/client/bench_test.go` 是標準的 `go test -bench` 測試套件，裡面定義了十個 benchmark：
-
-- UDS，透過自訂的 `http.Transport` 直接 dial 目標的 socket：`BenchmarkNautroudsBuiltin`、`BenchmarkNautroudsProxy`、`BenchmarkCaddyBuiltin`、`BenchmarkCaddyProxy`、`BenchmarkNginxBuiltin`、`BenchmarkNginxProxy`。
-- TCP+TLS edge 情境，透過 TLS dial edge proxy 的 container:port：`BenchmarkCaddyTLSNautroudsProxy`、`BenchmarkCaddyTLSDirectProxy`、`BenchmarkNginxTLSNautroudsProxy`、`BenchmarkNginxTLSDirectProxy`。
-
-Orchestrator 每次只會跑當前 stage 相關的子集，例如：
-
-```sh
-go test -bench=^BenchmarkCaddyProxy$ -benchtime=5s -run=^$ ./...
-```
-
-由於 `client` 容器的 `GOMAXPROCS` 被 `cpuset` 鎖成 `1`（見 [CPU 隔離](#cpu-隔離)），`b.RunParallel` 預設的並發數（`GOMAXPROCS × parallelism`）會直接崩到只剩一個 in-flight request。`bench_test.go` 因此明確呼叫 `b.SetParallelism`，數值來自 `CLIENT_PARALLELISM` 環境變數（預設 `64`），讓 client 仍能打出有意義的並發量——HTTP client 是 I/O bound，單一核心就足夠驅動大量並發 goroutine。
-
-任何非 2xx 的回應或 dial failure 都會讓 `b.Fatalf` 直接中止該 benchmark。

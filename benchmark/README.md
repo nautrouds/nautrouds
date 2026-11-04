@@ -1,144 +1,136 @@
+English | [繁體中文](README.zh-TW.md)
+
 # UDS Proxy Benchmark: Nautrouds vs Caddy vs Nginx
 
-### Compares Nautrouds, Caddy, and Nginx as UDS-only reverse proxies
+Compares Nautrouds, Caddy, and Nginx as UDS reverse proxies.
+- client, backend, and proxy each run on their own physical cores
+- rows limited by the client or the backend are flagged
+- proxy cost is reported as **CPU µs per request**, read from the proxy container's cgroup
+- a `client → backend` baseline shows how much latency each extra hop adds
 
-#### **Built-in response** (`/builtin/health`)
-* the proxy answers directly, no backend involved.
-#### **Reverse-proxy response** (`/proxy/*`)
-* the proxy forwards to a dedicated backend, itself only reachable over a Unix Domain Socket.
+## Paths
 
-
-### TCP+TLS edge scenario
-Nautrouds doesn't support TLS, so the realistic deployment is an edge proxy (Caddy/Nginx) doing TLS termination on a TCP port in front of it, then forwarding:
-
-#### **`<edge>` TLS → Nautrouds → backend**
-- Caddy/Nginx terminates TLS on `:8443`, then hands off to Nautrouds over UDS, which forwards to the backend over UDS.
-
-#### **`<edge>` TLS → backend (no Nautrouds)**
-- same edge proxy terminates TLS on `:8444` and reverse-proxies straight to its own backend over UDS, skipping Nautrouds entirely.
-
-
-This isolates the marginal cost of inserting Nautrouds as an internal UDS hop behind a TLS-terminating edge proxy, vs. letting Caddy/Nginx do everything themselves.
-
----
-
-## Topology
-
-All communication is over UDS — no TCP ports are published. Each proxy has its own private socket subtree and its own dedicated backend instance. Two named volumes are used:
-
-- `nautrouds-sockets` (mounted at `/var/run/nautrouds`) — used only by the `nautrouds` and `backend-nautrouds` containers.
-- `bench-sockets` (mounted at `/var/run/bench`) — shared by `caddy`, `backend-caddy`, `nginx`, and `backend-nginx`.
-
-```
-/var/run/nautrouds/
-  entrypoints/nautrouds-0.sock   <- Nautrouds entry socket
-  services/backend-service/node-0.sock
-
-/var/run/bench/
-  caddy/entry.sock                     <- Caddy entry socket
-  nginx/entry.sock                     <- Nginx entry socket
-  backends/
-    caddy/backend-service/node-0.sock
-    nginx/backend-service/node-0.sock
-```
-
-The `client` container mounts both volumes to reach every socket.
-
-## Stages
-
-`docker-compose.yml` gates every server-side container behind a Compose profile — one per stage — so `docker compose up` with no `--profile` starts nothing. Only one proxy stack is ever up at a time:
-
-| profile | containers | benchmarks run |
-|---|---|---|
-| `nautrouds-solo` | `nautrouds` | `NautroudsBuiltin` |
-| `nautrouds-proxy` | `nautrouds`, `backend-nautrouds` | `NautroudsProxy` |
-| `caddy-solo` | `caddy` | `CaddyBuiltin` |
-| `caddy-proxy` | `caddy`, `backend-caddy` | `CaddyProxy`, `CaddyTLSDirectProxy` |
-| `nginx-solo` | `nginx` | `NginxBuiltin` |
-| `nginx-proxy` | `nginx`, `backend-nginx` | `NginxProxy`, `NginxTLSDirectProxy` |
-| `caddy-tls` | `caddy`, `nautrouds`, `backend-nautrouds` | `CaddyTLSNautroudsProxy` |
-| `nginx-tls` | `nginx`, `nautrouds`, `backend-nautrouds` | `NginxTLSNautroudsProxy` |
-
-The `*-solo` stages run the built-in (no-backend) benchmarks completely alone — no other proxy, backend, or unrelated container is pinned to the same cores — since that's the cleanest read of pure proxy overhead and the most sensitive to any noisy neighbor.
-
-### CPU isolation
-
-Within a stage, the server-side containers (the proxy plus its own backend) share a `cpuset` driven by the `SERVER_CPUSET` env var. The orchestrator (see below) sweeps it across three tiers:
-
-| tier | cpuset (default 6-core pool) |
+| category | path |
 |---|---|
-| `1` | `0` |
-| `half` | `0-2` |
-| `all` | `0-5` |
+| `direct` | client → backend (baseline) |
+| `uds_builtin` | client → proxy, which answers `/builtin/health` itself |
+| `uds_proxy` | client → proxy → backend |
+| `tls_direct` | client → Caddy/Nginx (TLS `:8444`) → backend |
+| `tls_via_nautrouds` | client → Caddy/Nginx (TLS `:8443`) → Nautrouds → backend |
 
-The `client` container is pinned to a single dedicated core (`CLIENT_CPUSET`, default: right after the server pool, e.g. core `6`) that never overlaps the server pool — the load generator is never itself the resource under contention, so the only variable swept across a run is how many cores the server side gets. No container carries a `deploy.resources.limits.cpus` quota anymore; `cpuset` alone defines the core budget, so core-count effects and CPU-quota effects don't get conflated in the results.
+Nautrouds doesn't terminate TLS, so in production it sits behind Caddy or Nginx.
 
-Because `cpuset` pins the client to one core, its container-reported `GOMAXPROCS` is automatically `1` (Go's runtime reads the affinity mask via `sched_getaffinity`). See [Client](#client) below for how concurrency is still kept meaningful despite that.
+Comparing `tls_via_nautrouds` with `tls_direct` shows what it costs to add Nautrouds behind the TLS edge.
 
-Reverse-proxy scenarios use `examples/backend/main.go` as the backend, shared unmodified by all three proxies.
+## Workloads
 
-### TLS edge scenario
+| workload | shape | shows |
+|---|---|---|
+| `latency-c1` | 1 conn, closed-loop | unloaded per-hop latency |
+| `throughput-c64` | 64 conns, closed-loop | max throughput |
+| `throughput-c512` | 512 conns, closed-loop | high concurrency |
+| `rate-<n>` | 64 conns, open-loop at fixed req/s | latency at equal load |
+| `conn-per-request` | 64 conns, `Connection: close` | accept/dial and TLS handshake cost |
+| `body-64k` / `body-1m` | large response body | copy and streaming cost |
+| `upload-64k` | POST with a 64 KiB body | request body streaming |
+| `slow-backend-10ms` | 256 conns, backend sleeps 10 ms | many in-flight requests |
 
-Caddy and Nginx each additionally expose two internal-network TCP ports:
+`body-*`, `upload-64k` and `slow-backend-10ms` only run on paths with a backend.
 
-- `:8443` — TLS terminated, then reverse-proxied over UDS to the Nautrouds entry socket (`nautrouds-sockets` is mounted into both `caddy` and `nginx` for this).
-- `:8444` — TLS terminated, then reverse-proxied over UDS straight to that proxy's own backend, bypassing Nautrouds.
+For latency, compare `latency-c1` and `rate-<n>`. Closed-loop latency at saturation is mostly queueing time.
 
-Both ports use the same self-signed cert/key at `benchmark/tls/{cert,key}.pem` (ECDSA P-256, benchmark-only, not sensitive) so the TLS handshake cost is identical on both sides. Both are pinned to HTTP/1.1 (Caddy's `protocols h1`, Nginx's default without `http2 on;`) so the comparison isolates the TLS/hop overhead rather than mixing in h1-vs-h2 differences. The client uses `InsecureSkipVerify` since this is a self-signed benchmark cert.
+For capacity, compare `throughput-*` together with `proxy CPU µs/req`.
 
-Caddy and Nginx don't create the parent directory for their UDS socket on their own, so their `command:` is wrapped with `mkdir -p <dir> && exec <proxy> ...` to create it first. Nginx additionally fails to bind if a stale socket file from a previous run is still present (`AddrInUse`), so its command also does `rm -f <socket>` before starting; Caddy transparently detects and replaces stale unix sockets itself, so it needs no such workaround.
+## Fair configuration
+
+- Access logs are off for all three proxies.
+- Upstream keep-alive is set to 1024 idle connections for all three:
+  - Nginx: `keepalive`
+  - Caddy: `keepalive_idle_conns_per_host`
+  - Nautrouds: `NAUTROUDS_MAX_IDLE_CONNS_PER_NODE`
+- Nginx sets `keepalive_requests 1000000`, so it doesn't close connections every 1000 requests.
+- Nginx keeps its default response buffering, with `proxy_max_temp_file_size 0` so large responses never spill to temp files.
+- Nginx turns off `proxy_request_buffering`, so uploads stream like they do in the other two.
+- Nginx `worker_processes` equals the proxy CPU count.
+- Caddy and Nautrouds set `GOMAXPROCS` from the cpuset automatically.
+
+## CPU allocation
+
+The orchestrator reads the CPU topology and splits physical cores into three disjoint pools:
+
+| pool | default | flag |
+|---|---|---|
+| client | 2 cores | `-client-cores` |
+| backend | 1 core | `-backend-cores` |
+| proxy | all remaining cores | `-proxy-cores` |
+
+- Only the first hardware thread of each core is used by default, so no two pools share a core through SMT.
+- The proxy pool is swept over `1`, `half` and `all` of its cores, shown as tiers `1c`, `2c`, ...
+- No container has a CPU quota; only `cpuset` limits CPU, so CFS throttling doesn't skew the numbers.
+
+## How a run works
+
+Each proxy setup is a Compose profile, e.g. `baseline`, `nautrouds-proxy`, `caddy-tls`.
+
+Only one profile is up at a time, and each is removed with `down -v` before the next one starts.
+
+Once every container is healthy, each target is probed with real requests. Measurement starts only after it returns 2xx with the expected body size.
+
+For every run:
+
+1. `loadgen` warms up, keeps its connections open and waits.
+2. The orchestrator reads each container's cgroup CPU usage, then starts the measurement.
+3. Memory is sampled halfway through; CPU is read again at the end.
+
+Reps are interleaved, so slow drift spreads across all rows. The report shows the median across reps.
+
+## Reading the report
+
+- `Δp50 vs direct`: latency added compared with the `Direct` baseline.
+- `proxy CPU µs/req`: the main efficiency metric.
+- `proxy-bound` / `backend-bound` / `client-bound`: that side used ≥ 85% of its cores.
+  - A throughput row only shows the proxy's ceiling when it is `proxy-bound`.
+- `rate-missed`: open-loop achieved < 95% of the target rate.
+- `client-late`: the open-loop dispatcher's p99 send lag exceeds both 100 µs and 10% of the measured p99 latency, so latency can't be trusted.
+- `body-mismatch`: response size differs from what was requested.
+- `errors(n)`: I/O failures or non-2xx responses.
+
+If any row has `errors`, `client-late` or `body-mismatch`, the whole run is marked FAIL.
 
 ## Running
-
-The whole matrix (8 stages × 3 core tiers = 24 runs) is driven by a small Go program in `benchmark/orchestrator`. `run-benchmark.sh` is a thin wrapper around it:
 
 ```sh
 ./run-benchmark.sh
 ```
 
-which is equivalent to:
+The full matrix with defaults takes a little over 2 hours.
+
+To narrow it:
 
 ```sh
-cd benchmark && go run ./orchestrator
+cd benchmark
+go run ./orchestrator -stages baseline,nautrouds-proxy -workloads latency-c1,throughput-c64 -reps 1
 ```
-
-For each (stage, tier) pair the orchestrator sets `SERVER_CPUSET`/`CLIENT_CPUSET`, runs `docker compose --profile <stage> up -d --build`, polls `docker compose ps --format json` until every container reports `healthy`, runs `docker compose --profile <stage> run --rm client go test -bench=<that stage's benchmarks> ...`, then **always** tears the stage down with `docker compose --profile <stage> down -v` — even on failure — before moving on. No container is ever reused across stages or tiers, so results can't drift from state a previous run left behind.
-
-Flags (all optional):
 
 | flag | default | meaning |
 |---|---|---|
-| `-compose-file` | `docker-compose.yml` | path to the compose file |
-| `-results-dir` | `results` | where the final report is written |
-| `-server-cores` | `6` | size of the server-side cpuset pool; tiers become `1` / half / all of this |
-| `-client-core` | server-cores | which core the client is pinned to |
-| `-benchtime` | `5s` | passed straight to `go test -benchtime` |
-| `-healthy-timeout` | `90s` | how long to wait for a stage's containers to become healthy |
-| `-stages` | (all) | comma-separated subset of stage profiles, e.g. `-stages=nautrouds-solo,caddy-solo` |
+| `-proxy-cores` | `0` (all remaining) | physical cores in the proxy pool |
+| `-backend-cores` | `1` | physical cores for the backend |
+| `-client-cores` | `2` | physical cores for the load generator |
+| `-smt` | `false` | also use SMT siblings |
+| `-duration` | `5s` | measurement time per run |
+| `-warmup` | `2s` | warmup per run |
+| `-reps` | `3` | repetitions per row |
+| `-rates` | `5000,20000` | open-loop req/s targets |
+| `-stages` | all | comma-separated profiles |
+| `-workloads` | all | comma-separated workloads |
+| `-healthy-timeout` | `90s` | wait limit for containers to become healthy |
+| `-compose-file` | `docker-compose.yml` | compose file |
+| `-results-dir` | `results` | output directory |
 
-Only two files are ever written: `results/<timestamp>.md` and `results/latest.md`. There are no intermediate per-stage log files — everything the orchestrator does is also streamed live to stdout while it runs.
+Output:
 
-To drive a single stage by hand (e.g. while debugging the Caddyfile):
+- `results/<timestamp>.md`: report
+- `results/<timestamp>.json`: raw measurements
+- `results/latest.md`: copy of the latest report
 
-```sh
-SERVER_CPUSET=0-5 CLIENT_CPUSET=6 docker compose --profile caddy-proxy up -d --build
-docker compose --profile caddy-proxy run --rm client go test -bench=BenchmarkCaddyProxy -run=^$ ./...
-docker compose --profile caddy-proxy down -v
-```
-
-## Client
-
-`benchmark/client/bench_test.go` is a standard `go test -bench` suite. It defines ten benchmarks:
-
-- UDS, dialing the target's socket directly via a custom `http.Transport`: `BenchmarkNautroudsBuiltin`, `BenchmarkNautroudsProxy`, `BenchmarkCaddyBuiltin`, `BenchmarkCaddyProxy`, `BenchmarkNginxBuiltin`, `BenchmarkNginxProxy`.
-- TCP+TLS edge scenario, dialing the edge proxy's container:port over TLS: `BenchmarkCaddyTLSNautroudsProxy`, `BenchmarkCaddyTLSDirectProxy`, `BenchmarkNginxTLSNautroudsProxy`, `BenchmarkNginxTLSDirectProxy`.
-
-The orchestrator invokes only the subset relevant to the current stage, e.g.:
-
-```sh
-go test -bench=^BenchmarkCaddyProxy$ -benchtime=5s -run=^$ ./...
-```
-
-Since the `client` container's `GOMAXPROCS` is pinned to `1` by `cpuset` (see [CPU isolation](#cpu-isolation)), `b.RunParallel`'s default concurrency (`GOMAXPROCS × parallelism`) would collapse to a single in-flight request. `bench_test.go` explicitly calls `b.SetParallelism` using the `CLIENT_PARALLELISM` env var (default `64`) so the client still generates meaningful concurrent load — an HTTP client is I/O-bound, so a single core is enough to drive many concurrent goroutines.
-
-Any non-2xx response or dial failure aborts the benchmark with `b.Fatalf`.
