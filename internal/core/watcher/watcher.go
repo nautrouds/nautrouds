@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,11 +77,6 @@ func (w *Watcher) addRecursive(root string) error {
 }
 
 func (w *Watcher) Start() error {
-	// Initial Scan
-	if err := w.scanner.Scan(""); err != nil {
-		return err
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancel = cancel
 
@@ -89,6 +85,12 @@ func (w *Watcher) Start() error {
 
 	root := w.scanner.BaseDir()
 	if err := w.addRecursive(root); err != nil {
+		cancel()
+		return err
+	}
+
+	if err := w.scanner.Scan(""); err != nil {
+		cancel()
 		return err
 	}
 
@@ -106,32 +108,30 @@ func (w *Watcher) listenEvents(ctx context.Context) {
 				return
 			}
 
+			switch event.Op {
+			case fsnotify.Create, fsnotify.Write, fsnotify.Remove, fsnotify.Rename:
+			default:
+				continue
+			}
+
+			relPath, err := filepath.Rel(baseDir, event.Name)
+			if err != nil {
+				logs.Out.Error("failed to get relative path", zap.Error(err))
+				continue
+			}
+
 			if event.Has(fsnotify.Create) {
 				info, err := os.Stat(event.Name)
 				if err == nil && info.IsDir() {
-					w.addRecursive(event.Name)
-				}
-			}
-			switch event.Op {
-			case fsnotify.Create, fsnotify.Write, fsnotify.Remove, fsnotify.Rename:
-				relPath, err := filepath.Rel(baseDir, event.Name)
-				if err != nil {
-					logs.Out.Error("failed to get relative path", zap.Error(err))
+					if err := w.addRecursive(event.Name); err != nil {
+						logs.Out.Error("failed to watch directory", zap.String("path", event.Name), zap.Error(err))
+					}
+					w.markDirty(topLevelDir(relPath))
 					continue
 				}
-
-				serviceName := filepath.Dir(relPath)
-				if serviceName != "" && serviceName != "." {
-					w.dirtyMu.Lock()
-					w.dirtyServices[serviceName] = struct{}{}
-					w.dirtyMu.Unlock()
-
-					select {
-					case w.eventSignal <- struct{}{}:
-					default:
-					}
-				}
 			}
+
+			w.markDirty(filepath.Dir(relPath))
 
 		case err, ok := <-w.fsWatcher.Errors:
 			if !ok {
@@ -140,6 +140,26 @@ func (w *Watcher) listenEvents(ctx context.Context) {
 			logs.Out.Error("fsnotify error", zap.Error(err))
 		}
 	}
+}
+
+func (w *Watcher) markDirty(serviceName string) {
+	if serviceName == "" || serviceName == "." {
+		return
+	}
+
+	w.dirtyMu.Lock()
+	w.dirtyServices[serviceName] = struct{}{}
+	w.dirtyMu.Unlock()
+
+	select {
+	case w.eventSignal <- struct{}{}:
+	default:
+	}
+}
+
+func topLevelDir(relPath string) string {
+	first, _, _ := strings.Cut(filepath.ToSlash(relPath), "/")
+	return filepath.FromSlash(first)
 }
 
 func (w *Watcher) runWorkerLoop(ctx context.Context) {
