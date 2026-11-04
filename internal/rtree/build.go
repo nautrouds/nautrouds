@@ -56,6 +56,9 @@ func Build(rawNodes []*RawNode) *RouteTree {
 
 		ReverseHost(url)
 		methodMask := parseMethods(raw.Methods)
+		if methodMask == 0 {
+			panic(fmt.Sprintf("[rtree] route %q has no valid HTTP method in %q", raw.URL, raw.Methods))
+		}
 		tagMask := tags.Analyze(raw.Tags)
 
 		svcID := t.getOrCreateActionID(raw.Service, actionMap)
@@ -109,15 +112,15 @@ func (t *RouteTree) getOrCreateActionID(action string, actionMap map[string]uint
 		actionBytes := []byte(action)
 		actionLen := len(actionBytes)
 
-		actionChunk := make([]byte, 0, actionLen+((actionLen+254)/255))
-		for actionLen > 0 {
-			l := min(actionLen, 255)
-			actionChunk = append(actionChunk, byte(l))
-			if actionLen == 255 {
-				actionChunk = append(actionChunk, 0)
+		actionChunk := make([]byte, 0, actionLen+actionLen/255+1)
+		remaining := actionLen
+		for {
+			chunkLen := min(remaining, 255)
+			actionChunk = append(actionChunk, byte(chunkLen))
+			if chunkLen < 255 {
 				break
 			}
-			actionLen -= l
+			remaining -= chunkLen
 		}
 		actionChunk = append(actionChunk, actionBytes...)
 		t.ActionsRegistry = append(t.ActionsRegistry, actionChunk...)
