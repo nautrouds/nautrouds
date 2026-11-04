@@ -24,6 +24,8 @@ const (
 	Wildcard       byte = 0x02
 )
 
+const MaxWildcardsPerRoute = 32
+
 var HTTPMethodMap = map[string]uint16{
 	http.MethodGet:     MethodGet,
 	http.MethodPost:    MethodPost,

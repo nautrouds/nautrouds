@@ -121,6 +121,22 @@ func TestHostReversalAndVariableLengths(t *testing.T) {
 	assert.Equal(t, "global-status-service", getServiceName(tree, nodeL.ActionIndex))
 }
 
+func TestWildcardLimitPerRoute(t *testing.T) {
+	atLimit := "example.com" + strings.Repeat("/*", rtree.MaxWildcardsPerRoute)
+	tree := rtree.Build([]*rtree.RawNode{{URL: atLimit, Service: "at-limit", Methods: "GET"}})
+	require.NotNil(t, tree)
+
+	node, exists := tree.Search(prepareURL("example.com" + strings.Repeat("/x", rtree.MaxWildcardsPerRoute)))
+	require.True(t, exists)
+	assert.Equal(t, "at-limit", getServiceName(tree, node.ActionIndex))
+
+	overLimit := "example.com" + strings.Repeat("/*", rtree.MaxWildcardsPerRoute) + "/**"
+	assert.PanicsWithValue(t,
+		fmt.Sprintf("[rtree] route %q has %d wildcards, exceeds the limit of %d", overLimit, rtree.MaxWildcardsPerRoute+1, rtree.MaxWildcardsPerRoute),
+		func() { rtree.Build([]*rtree.RawNode{{URL: overLimit, Service: "over-limit", Methods: "GET"}}) },
+	)
+}
+
 func TestDuplicateRouteWarnsOnOverride(t *testing.T) {
 	var logs bytes.Buffer
 	log.SetOutput(&logs)

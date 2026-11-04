@@ -2,6 +2,7 @@ package rtree
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"nautrouds/internal/interpolate"
 	"nautrouds/internal/tags"
@@ -48,6 +49,11 @@ func Build(rawNodes []*RawNode) *RouteTree {
 	for _, raw := range rawNodes {
 		url := wildcardReg.ReplaceAll([]byte(raw.URL), []byte{WildcardGreedy})
 		url = bytes.ReplaceAll(url, []byte("*"), []byte{Wildcard})
+
+		if wildcards := countWildcards(url); wildcards > MaxWildcardsPerRoute {
+			panic(fmt.Sprintf("[rtree] route %q has %d wildcards, exceeds the limit of %d", raw.URL, wildcards, MaxWildcardsPerRoute))
+		}
+
 		ReverseHost(url)
 		methodMask := parseMethods(raw.Methods)
 		tagMask := tags.Analyze(raw.Tags)
@@ -84,6 +90,16 @@ func Build(rawNodes []*RawNode) *RouteTree {
 
 	log.Printf("[rtree] Successfully built tree with %d nodes", len(t.NodePool))
 	return t
+}
+
+func countWildcards(url []byte) int {
+	count := 0
+	for _, char := range url {
+		if char == Wildcard || char == WildcardGreedy {
+			count++
+		}
+	}
+	return count
 }
 
 func (t *RouteTree) getOrCreateActionID(action string, actionMap map[string]uint32) uint32 {

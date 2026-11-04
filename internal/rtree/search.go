@@ -44,7 +44,7 @@ func (t *RouteTree) Search(url []byte) (*RouteNode, bool) {
 
 	firstChar := url[0]
 	var currentEdgeIdx uint16
-	var cursorCheckpoints [16]int32
+	var cursorCheckpoints [MaxWildcardsPerRoute]int32
 	var checkpointIdx int32
 
 	cursor := int32(0)
