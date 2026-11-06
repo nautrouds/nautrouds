@@ -1,164 +1,179 @@
-# Ntufile Syntax Specification
+# Ntufile Syntax
 
-Nautrouds uses a Domain Specific Language (DSL) called `Ntufile` to define routing rules, middleware, and virtual services.
+An `Ntufile` defines routes, middleware, and virtual services.
 
-## Basic Syntax
+## Rules
 
-Each rule consists of 1 to 3 columns, followed by optional indented middleware directives.
-
-### Rule Format
 ```text
 [METHOD] [URL] <SERVICE>
     $Middleware("args")
+    @tag
 ```
 
-### Column Variations
-| Columns | Format | Result |
-| :--- | :--- | :--- |
-| 1 | `service` | Method=`*`, URL=`*/[|*]`, Service=`service` |
-| 2 | `url service` | Method=`*`, URL=`url`, Service=`service` |
-| 3 | `method url service`| Method=`method`, URL=`url`, Service=`service` |
+A rule has 1–3 columns, followed by indented middleware and tags:
 
-### Examples
+| Columns | Format | METHOD | URL |
+| :--- | :--- | :--- | :--- |
+| 1 | `service` | `*` | `*/[|*]` |
+| 2 | `url service` | `*` | `url` |
+| 3 | `method url service` | `method` | `url` |
+
 ```text
-# Catch-all for a specific service
+# Catch-all
 backend-default
 
-# Match all methods for a path
+# Any method
 /api/* api-service
 
-# Strict matching
+# Specific method
 POST /upload/* storage-service
     $IPAllow("192.168.0.0/16")
 ```
 
 ### Block Syntax
-Tags and middleware directives can also be grouped in a `{ }` block instead of relying on indentation. Both forms below define the exact same rule:
+
+Middleware and tags can be wrapped in `{ }` instead of being indented. These are equivalent:
 
 ```text
-# Indented form
 POST /upload/* storage-service
     $IPAllow("192.168.0.0/16")
     @no-metrics
 
-# Block form
 POST /upload/* storage-service {
     $IPAllow("192.168.0.0/16")
     @no-metrics
 }
 
-# Single line with ";"
-POST /upload/* storage-service { $IPAllow("192.168.0.0/16"); @no-metrics }
-
-# Block form without indentation
-POST /upload/* storage-service {
-$IPAllow("192.168.0.0/16")
-@no-metrics
-}
-
-# Minimum whitespace
 POST /upload/* storage-service{$IPAllow("192.168.0.0/16");@no-metrics}
-
-# 1-column form (no METHOD/URL)
-backend-default{$IPAllow("192.168.0.0/16");@no-metrics}
 ```
 
-- `{` may end the rule line or start its own line right after.
-- Indentation inside `{ }` is cosmetic, not required.
-- `}` must close before another rule can start.
-- `;` is required between two bare (unparenthesized) directives — otherwise they silently merge into one invalid value. It's optional right after a `)`.
-- No indentation needed at all: a line with none is only misread as a new rule outside a `{ }` block.
+- `{` can end the rule line or open the next line.
+- Indentation inside `{ }` is optional.
+- `}` must close before the next rule.
+- `;` is required between two bare (unparenthesized) directives, otherwise they merge into one invalid value; it's optional after `)`.
 
 ### Comments
-- `#`: Single-line comment.
-- `#*`: Block comment (skips until the next blank line).
 
-### Route Tags
-An indented line starting with `@` attaches a tag to the rule instead of a middleware. Tags are metadata read by the core engine, not request-processing steps.
+- `#`: single-line comment.
+- `#*`: block comment, until the next blank line.
+
+### Tags
+
+A line starting with `@` attaches metadata to the rule.
 
 | Tag | Description |
 | :--- | :--- |
-| `@no-metrics` / `@!metrics` | Excludes this route from the per-request HTTP metrics (`nautrouds_http_requests_total`, byte counters, `nautrouds_request_duration_seconds`, `nautrouds_own_duration_seconds`, etc.). Both forms are equivalent. |
-
-```text
-GET /health $ok
-    @no-metrics
-```
+| `@no-metrics` / `@!metrics` | Excludes the route from per-request HTTP metrics (`nautrouds_http_requests_total`, byte counters, `nautrouds_request_duration_seconds`, `nautrouds_own_duration_seconds`, etc.). |
 
 ---
 
-## Built-in Middlewares ($)
-
-Middlewares are applied to a route via indentation.
+## Built-in Middleware
 
 | Name | Arguments | Description |
 | :--- | :--- | :--- |
-| `$SetHeader` | `(key, value)` | Sets a response header. |
-| `$DelHeader` | `(key)` | Deletes a header. |
-| `$SetHost` | `(host)` | Overwrites the `Host` header. |
-| `$PathTrimPrefix`| `(prefix)` | Removes prefix from URL path. |
-| `$RewritePath` | `(old, new)` | Replaces pattern in URL path. |
-| `$SetQuery` | `(key, value)` | Sets a query parameter. |
-| `$BasicAuth` | `(user, pass)` | Basic Authentication. |
-| `$RequireHeader` | `(key, value)` | Rejects the request with `403` unless the header equals `value`. |
-| `$IPAllow` | `(cidr)` or `(headerKey, cidr)` | Restricts access by CIDR. With one argument, matches against the rightmost entry of `X-Forwarded-For` by default; with two, uses the value of `headerKey` instead. |
-| `$Log` | `(line)` | Prints `line` to stdout as-is. Use tags like `{method}`, `{path}`, `{remoteip}`, `{header.X}` to interpolate request info. `{remoteip}` is the rightmost entry of `X-Forwarded-For`. |
-| `$BodySizeLimit` | `(size)` | Rejects requests whose body exceeds `size` with `413`. Accepts a plain byte count or a human-readable size with a `KB`/`MB`/`GB` suffix (1024-based), e.g. `512`, `10KB`, `5MB`, `1GB`. Must be the last middleware in the chain — this is enforced at compile time. |
-| `$RetryLimit` | `(count)` | Caps how many additional backend nodes are tried after one fails to dial. Only applies to `GET`/`HEAD`/`OPTIONS`/`TRACE` requests; other methods never retry a dial failure. A node already known to be down is always skipped, regardless of method or this limit. Without `$RetryLimit`, a safe-method request retries dial failures until every registered node has been tried. |
+| `$SetHeader` | `(key, value)` | [Set response header](#headers) |
+| `$DelHeader` | `(key)` | [Delete header](#headers) |
+| `$SetHost` | `(host)` | [Overwrite `Host`](#headers) |
+| `$PathTrimPrefix` | `(prefix)` | [Trim path prefix](#path--query) |
+| `$RewritePath` | `(old, new)` | [Rewrite path](#path--query) |
+| `$SetQuery` | `(key, value)` | [Set query parameter](#path--query) |
+| `$BasicAuth` | `(user, pass)` | [Basic authentication](#access-control) |
+| `$RequireHeader` | `(key, value)` | [Require header value](#access-control) |
+| `$IPAllow` | `(cidr)` / `(headerKey, cidr)` | [Restrict by CIDR](#access-control) |
+| `$BodySizeLimit` | `(size)` | [Limit body size](#limits) |
+| `$RetryLimit` | `(count)` | [Limit dial retries](#limits) |
+| `$Log` | `(line)` | [Print a log line](#logging) |
 
----
+### Headers
 
-## External Middlewares
+- `$SetHeader`: sets a response header.
+- `$DelHeader`: deletes a header.
+- `$SetHost`: overwrites the `Host` header.
 
-A middleware name without a `$` prefix is forwarded to a UDS service registered under that name. It accepts the same `(args)` syntax as builtins:
+### Path & Query
+
+- `$PathTrimPrefix`: removes a prefix from the path.
+- `$RewritePath`: replaces a pattern in the path.
+- `$SetQuery`: sets a query parameter.
+
+### Access Control
+
+- `$BasicAuth`: basic authentication.
+- `$RequireHeader`: returns `403` unless the header equals `value`.
+- `$IPAllow`: restricts by CIDR.
+  - With one argument, checks the rightmost `X-Forwarded-For` entry; with `headerKey`, checks that header instead.
+  - See [Security Considerations](../README.md#2-ipallow-header-mode) before using the header form.
+
+### Limits
+
+- `$BodySizeLimit`: returns `413` if the body exceeds `size`.
+  - Accepts bytes or a 1024-based `KB`/`MB`/`GB` suffix, e.g. `512`, `10KB`, `5MB`, `1GB`.
+  - Must be the last middleware; checked at compile time.
+- `$RetryLimit`: caps how many more nodes are tried after a dial failure.
+  - Only `GET`/`HEAD`/`OPTIONS`/`TRACE` retry; without a limit, they try every node.
+  - Nodes known to be down are always skipped.
+
+### Logging
+
+- `$Log`: prints `line` to stdout.
+  - Supports `{method}`, `{path}`, `{remoteip}` (rightmost `X-Forwarded-For`), `{header.X}`.
+
+## External Middleware
+
+A name without `$` forwards to the UDS service of that name:
 
 ```text
 auth-service("/check", "header=X-User-Id", "header=X-User-Role")
 ```
 
-| Position | Meaning |
+| Argument | Meaning |
 | :--- | :--- |
-| `args[0]` | Path invoked on the middleware's UDS service (default `/`). |
-| `args[1:]` with a `header=` prefix | Allowlist of response headers copied back onto the request when the middleware approves (204). Any other response header is dropped. Args without this prefix are ignored. |
+| `args[0]` | [Service path](#arguments) |
+| `header=<name>` | [Copy response header](#arguments) |
 
----
+### Arguments
 
-## mmfg Middleware ($mmfg)
+- `args[0]`: path called on the service (default `/`).
+- `header=<name>`: when the service approves (204), copies this response header onto the request.
+  - Other response headers and arguments without this prefix are ignored.
 
-`$mmfg(service/node)` forwards the request to a node registered via [mmfg-http](https://github.com/nautrouds/mmfg-http) instead of the plain HTTP-over-UDS path used by regular middlewares/services.
+## mmfg Middleware
+
+`$mmfg("service/node")` forwards to a node registered via [mmfg-http](https://github.com/nautrouds/mmfg-http) instead of HTTP-over-UDS.
 
 ```text
 GET /api/* backend-service
     $mmfg("mmfg-service/auth")
 ```
 
-- **unix-only**: mmfg is unavailable on non-unix builds. A route hitting `$mmfg(...)` on such a build returns `500`.
-- The node's UDS must be a `unixpacket` (not `unix`/stream) socket, named `<node>.mmfg`; an optional `<node>.ctl.mmfg` control socket (also `unixpacket`) enables self-respond.
+- Unix only; elsewhere the route returns `500`.
+- The node socket must be `unixpacket`, named `<node>.mmfg`.
+- An optional `<node>.ctl.mmfg` control socket (also `unixpacket`) enables self-respond.
 
 ---
 
-## Virtual Services ($)
+## Virtual Services
 
-Virtual services are functional endpoints provided by the Nautrouds core.
+Endpoints served by the core itself, used in place of a service name.
 
 | Name | Arguments | Description |
 | :--- | :--- | :--- |
-| `$echo` | - | Returns request info as JSON. |
-| `$ok` | `(msg?)` | Returns 200 OK with optional body. |
-| `$err` | `(code, msg?)` | Returns custom error code and message. |
-| `$health` | - | Synonym for `$ok`. |
-| `$welcome` | - | Returns a simple HTML welcome page with an Ntufile quick-start and doc links. |
-| `$metrics` | - | Exposes internal Prometheus metrics. |
-| `$redirect` | `(code, url)` | Performs a redirect. |
-| `$json` | `(body?)` | Returns custom JSON response. |
-| `$ping` | `(service?)` | Checks connectivity to a specific backend service. |
-| `$services`| - | Returns a JSON list of all active services and nodes. |
+| `$echo` | - | Request info as JSON. |
+| `$ok` | `(msg?)` | `200` with optional body. |
+| `$health` | - | Same as `$ok`. |
+| `$err` | `(code, msg?)` | Custom status and message. |
+| `$json` | `(body?)` | Custom JSON response. |
+| `$redirect` | `(code, url)` | Redirect. |
+| `$welcome` | - | HTML welcome page with a quick-start. |
+| `$metrics` | - | Prometheus metrics. |
+| `$ping` | `(service?)` | Checks connectivity to a backend service. |
+| `$services` | - | Active services and nodes as JSON. |
 
 ---
 
-## Routing Logic
+## Routing
 
-1. **Radix Tree Matching**: Nautrouds uses a Radix Tree for path matching, walking the tree segment-by-segment rather than scanning every route.
-2. **Wildcards**: `*` matches any segment. Backtracking is supported for complex patterns.
-3. **Priority**: Specific paths are matched before wildcards.
-4. **Method Filtering**: If a method is specified (e.g., `POST`), requests with other methods will result in a 405 or 404 depending on tree structure.
+- Paths are matched segment by segment on a radix tree.
+- `*` matches any segment, with backtracking.
+- Specific paths take priority over wildcards.
+- A path that matches but with the wrong method returns `405` or `404`, depending on the tree.
