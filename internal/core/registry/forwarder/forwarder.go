@@ -248,8 +248,6 @@ func (f *Forwarder) ForwardMiddleware(w *tempresp.ResponseWriter, r *http.Reques
 	}
 	request.Host = r.Host
 
-	request.Header.Set("X-Real-IP", r.RemoteAddr)
-
 	response, err := f.client.Do(request)
 	if err != nil {
 		var opErr *net.OpError
