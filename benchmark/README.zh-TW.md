@@ -3,6 +3,7 @@
 # UDS Proxy Benchmark：Nautrouds vs Caddy vs Nginx
 
 比較 Nautrouds、Caddy、Nginx 作為 UDS reverse proxy 的表現。
+
 - client、backend、proxy 各自使用獨立的實體核心
 - 被 client 或 backend 卡住的結果會被標記
 - proxy 成本以 **每個 request 的 CPU µs** 表示，數據來自 proxy container 的 cgroup
@@ -37,7 +38,9 @@ Nautrouds 不處理 TLS，實際部署時前面會放 Caddy 或 Nginx。
 
 `body-*`、`upload-64k`、`slow-backend-10ms` 只會跑在有 backend 的路徑上。
 
-比較 latency 時看 `latency-c1` 和 `rate-<n>`。closed-loop 飽和時的 latency 主要是排隊時間。
+比較 latency 時看 `latency-c1` 和 `rate-<n>`。
+
+closed-loop 飽和時的 latency 主要是排隊時間。
 
 比較容量時，看 `throughput-*` 搭配 `proxy CPU µs/req`。
 
@@ -82,7 +85,9 @@ Orchestrator 讀取 CPU topology，把實體核心切成三個互不重疊的 po
 2. Orchestrator 讀取各 container 的 cgroup CPU 用量，然後開始量測。
 3. 量測到一半時取樣 memory；結束時再讀一次 CPU。
 
-各 rep 交錯執行，讓緩慢的效能飄移平均分散到每一列。報告呈現各 rep 的 median。
+各 rep 交錯執行，讓緩慢的效能飄移平均分散到每一列。
+
+報告呈現各 rep 的 median。
 
 ## 報告解讀
 

@@ -3,6 +3,7 @@ English | [繁體中文](README.zh-TW.md)
 # UDS Proxy Benchmark: Nautrouds vs Caddy vs Nginx
 
 Compares Nautrouds, Caddy, and Nginx as UDS reverse proxies.
+
 - client, backend, and proxy each run on their own physical cores
 - rows limited by the client or the backend are flagged
 - proxy cost is reported as **CPU µs per request**, read from the proxy container's cgroup
@@ -37,7 +38,9 @@ Comparing `tls_via_nautrouds` with `tls_direct` shows what it costs to add Nautr
 
 `body-*`, `upload-64k` and `slow-backend-10ms` only run on paths with a backend.
 
-For latency, compare `latency-c1` and `rate-<n>`. Closed-loop latency at saturation is mostly queueing time.
+For latency, compare `latency-c1` and `rate-<n>`.
+
+Closed-loop latency at saturation is mostly queueing time.
 
 For capacity, compare `throughput-*` together with `proxy CPU µs/req`.
 
@@ -74,7 +77,9 @@ Each proxy setup is a Compose profile, e.g. `baseline`, `nautrouds-proxy`, `cadd
 
 Only one profile is up at a time, and each is removed with `down -v` before the next one starts.
 
-Once every container is healthy, each target is probed with real requests. Measurement starts only after it returns 2xx with the expected body size.
+Once every container is healthy, each target is probed with real requests.
+
+Measurement starts only after it returns 2xx with the expected body size.
 
 For every run:
 
@@ -82,7 +87,9 @@ For every run:
 2. The orchestrator reads each container's cgroup CPU usage, then starts the measurement.
 3. Memory is sampled halfway through; CPU is read again at the end.
 
-Reps are interleaved, so slow drift spreads across all rows. The report shows the median across reps.
+Reps are interleaved, so slow drift spreads across all rows.
+
+The report shows the median across reps.
 
 ## Reading the report
 
