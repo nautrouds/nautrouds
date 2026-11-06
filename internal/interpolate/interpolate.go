@@ -1,7 +1,7 @@
 package interpolate
 
 import (
-	"net"
+	"nautrouds/internal/clientip"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -78,15 +78,11 @@ type RequestContext struct {
 
 func New(r *http.Request) *RequestContext {
 	queries := r.URL.Query()
-	remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		remoteIP = r.RemoteAddr
-	}
 	return &RequestContext{
 		request:      r,
 		queryParams:  queries,
 		encodedQuery: queries.Encode(),
-		remoteIP:     remoteIP,
+		remoteIP:     clientip.FromRequest(r),
 	}
 }
 

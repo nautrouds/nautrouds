@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math"
+	"nautrouds/internal/clientip"
 	"nautrouds/internal/core/builtins"
 	"nautrouds/internal/core/logs"
 	"nautrouds/internal/core/mmfg"
@@ -262,7 +263,7 @@ func IPAllow(args ...string) (HandlerFunc, error) {
 				ipStr = r.Header.Get(headerKey)
 			}
 		} else {
-			ipStr, _, _ = net.SplitHostPort(r.RemoteAddr)
+			ipStr = clientip.FromRequest(r)
 		}
 
 		ip := net.ParseIP(ipStr)

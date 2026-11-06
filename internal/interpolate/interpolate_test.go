@@ -82,7 +82,7 @@ func TestReplace(t *testing.T) {
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	req.Host = "example.com"
 	req.Header.Set("X-API-Key", "secret-key")
-	req.RemoteAddr = "192.168.1.1:1234"
+	req.Header.Set("X-Forwarded-For", "192.168.1.1")
 
 	ctx := interpolate.New(req)
 

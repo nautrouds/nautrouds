@@ -286,7 +286,7 @@ func TestIPAllow_AllowedIP(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "192.0.2.1:1234"
+	req.Header.Set("X-Forwarded-For", "192.0.2.1")
 	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusOK, w.GetCode())
 }
@@ -296,7 +296,7 @@ func TestIPAllow_BlockedIP(t *testing.T) {
 	require.NoError(t, err)
 	w, _ := newWriter()
 	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "192.0.2.1:1234"
+	req.Header.Set("X-Forwarded-For", "192.0.2.1")
 	fn(w, req, nil, nil)
 	assert.Equal(t, http.StatusForbidden, w.GetCode())
 }

@@ -150,7 +150,7 @@ Nautrouds is a UDS-only internal proxy: it assumes every process able to reach i
 `$IPAllow(headerKey, cidr)` trusts whatever value arrives in `headerKey`.
 
 - **Risk**: if Nautrouds is the first hop terminating client connections, the client controls that header directly and can bypass the CIDR check.
-- **Guidance**: only use the header form behind a trusted upstream guaranteed to overwrite (not merely forward) that header; otherwise use the single-argument, `RemoteAddr`-based form.
+- **Guidance**: only use the header form behind a trusted upstream guaranteed to overwrite (not merely forward) that header; otherwise use the single-argument form, which reads the rightmost `X-Forwarded-For` entry by default.
 
 #### 3. Metrics collector socket
 

@@ -149,7 +149,7 @@ Nautrouds 是純 UDS（Unix Domain Socket）內部 proxy：它假設任何能連
 `$IPAllow(headerKey, cidr)` 會信任 `headerKey` 收到的任何值。
 
 - **風險**：如果 Nautrouds 是第一個終結客戶端連線的節點，客戶端可以直接控制該 header，藉此繞過 CIDR 檢查。
-- **建議**：只有在確定有可信上游會覆寫（而非單純轉發）該 header 時，才使用 header 模式；否則請使用單參數、以 `RemoteAddr` 為基礎的形式。
+- **建議**：只有在確定有可信上游會覆寫（而非單純轉發）該 header 時，才使用 header 模式；否則請使用單參數形式，預設讀取 `X-Forwarded-For` 最右側的 entry。
 
 #### 3. Metrics collector socket
 

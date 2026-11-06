@@ -101,8 +101,8 @@ Middlewares are applied to a route via indentation.
 | `$SetQuery` | `(key, value)` | Sets a query parameter. |
 | `$BasicAuth` | `(user, pass)` | Basic Authentication. |
 | `$RequireHeader` | `(key, value)` | Rejects the request with `403` unless the header equals `value`. |
-| `$IPAllow` | `(cidr)` or `(headerKey, cidr)` | Restricts access by CIDR. With one argument, matches against `RemoteAddr`; with two, uses the value of `headerKey` in place of `RemoteAddr`. |
-| `$Log` | `(line)` | Prints `line` to stdout as-is. Use tags like `{method}`, `{path}`, `{remoteip}`, `{header.X}` to interpolate request info. |
+| `$IPAllow` | `(cidr)` or `(headerKey, cidr)` | Restricts access by CIDR. With one argument, matches against the rightmost entry of `X-Forwarded-For` by default; with two, uses the value of `headerKey` instead. |
+| `$Log` | `(line)` | Prints `line` to stdout as-is. Use tags like `{method}`, `{path}`, `{remoteip}`, `{header.X}` to interpolate request info. `{remoteip}` is the rightmost entry of `X-Forwarded-For`. |
 | `$BodySizeLimit` | `(size)` | Rejects requests whose body exceeds `size` with `413`. Accepts a plain byte count or a human-readable size with a `KB`/`MB`/`GB` suffix (1024-based), e.g. `512`, `10KB`, `5MB`, `1GB`. Must be the last middleware in the chain — this is enforced at compile time. |
 | `$RetryLimit` | `(count)` | Caps how many additional backend nodes are tried after one fails to dial. Only applies to `GET`/`HEAD`/`OPTIONS`/`TRACE` requests; other methods never retry a dial failure. A node already known to be down is always skipped, regardless of method or this limit. Without `$RetryLimit`, a safe-method request retries dial failures until every registered node has been tried. |
 
