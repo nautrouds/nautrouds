@@ -12,60 +12,36 @@
 
 ---
 
-Nautrouds 是一個動態服務管理與代理系統，專為高可用性的請求路由與服務發現而設計。透過 Unix Domain Sockets (UDS) 與設定熱重載，實現流暢的流量管理。
+Nautrouds 是基於 Unix Domain Sockets (UDS) 的 reverse proxy，內建服務發現。
 
-## 核心功能
-
-- **設定熱重載**：自動追蹤 `.ntu` 或 `Ntufile` 設定檔的變更。
-- **動態服務發現**：即時的服務註冊表管理。
-- **UDS 代理**：透過 Unix Domain Sockets 高效轉發請求。
-- **優雅的生命週期管理**：自動化的 Socket 監聽器與服務狀態清理。
+- **熱重載**：監看 `.ntu` / `Ntufile` 設定檔，變更自動生效。
+- **服務發現**：backend 只要在 services 目錄放入 socket 即完成註冊。
+- **UDS 代理**：透過 UDS 將請求轉發給 backend。
+- **生命週期管理**：自動建立與清理 socket listener 及服務狀態。
 
 ## 開始使用
 
-### 先決條件
-
-- Go 1.25.6 或更高版本。
-
-### 安裝
+需要 Go 1.25.6 以上。
 
 ```bash
-# Clone 儲存庫
 git clone https://github.com/nautrouds/nautrouds.git
 cd nautrouds
-
-# 編譯核心執行檔
 go build -o bin/nautrouds ./cmd/core
-
-# 編譯 ntuc 編譯器
 go build -o bin/ntuc ./cmd/ntuc
 ```
 
-### 使用方式
-
-執行 Nautrouds 核心服務：
+用 `ntuc` 編譯 `Ntufile`，再啟動核心服務：
 
 ```bash
-./bin/nautrouds --config=my-app.ntu
+./bin/ntuc -i Ntufile -o nautrouds.ntu
+./bin/nautrouds --config=nautrouds.ntu
 ```
 
 ## 設定
 
-Nautrouds 使用 `Ntufile` 作為設定檔，經由 `ntuc` 編譯器轉換為 binary 格式 (`.ntu`) 以供核心引擎進行熱重載。
-
-### 設定檔編譯 (ntuc)
-
-使用 `ntuc` 工具將 `Ntufile` 編譯為 Nautrouds 核心可讀取的 binary 格式 (`.ntu`)：
-
-```bash
-# 基本編譯指令
-./bin/ntuc -i Ntufile -o nautrouds.ntu
-```
-
-### 設定範例 (Ntufile)
+路由定義在 `Ntufile` 中：
 
 ```text
-# 基礎路由規則
 GET /api/v1/users user-service
     $SetHeader("X-Source", "Nautrouds")
     $BasicAuth("admin", "secret")
@@ -74,113 +50,100 @@ POST /upload/* storage-service
     $IPAllow("192.168.1.0/24")
 ```
 
-詳細的語法規格、內建中間件與虛擬服務清單，請參閱 [語法指南](./docs/syntax.md)。關於 CLI 使用與核心設定，請參閱 [工具指南](./docs/ntuc.md)。
+- 語法、middleware 與虛擬服務：[語法指南](./docs/syntax.md)
+- CLI flag 與環境變數：[工具指南](./docs/ntuc.md)
 
-## Docker 支援
+## Docker
 
-Nautrouds 可以使用 Docker 與 Docker Compose 進行部署。這是推薦的體驗動態 UDS 代理與服務發現的環境。
+```bash
+docker compose -f examples/docker-compose.yml up --build
+```
 
-### 使用 Docker Compose 快速啟動
+範例包含一個 `gateway` (socat)，將 TCP `8080` 橋接到 Nautrouds 的 UDS 入口：
 
-1. **構建並啟動服務棧**:
-   ```bash
-   docker compose -f examples/docker-compose.yml up --build
-   ```
+```bash
+curl http://localhost:8080/
+curl http://localhost:8080/health
+curl http://localhost:8080/debug/services
+```
 
-
-2. **測試代理功能**:
-   範例配置包含一個 `gateway` (socat)，它將 TCP 端口 `8080` 橋接到 Nautrouds 的 UDS 入口。
-   ```bash
-   # 測試後端服務
-   curl http://localhost:8080/
-
-   # 測試虛擬服務
-   curl http://localhost:8080/health
-   curl http://localhost:8080/debug/services
-   ```
-
-3. **Docker 內的目錄結構**:
-   - `/etc/nautrouds`: 配置文件 (`.ntu`, `Ntufile`)。
-   - `/var/run/nautrouds/services`: 後端 UDS socket 檔案。
-   - `/var/run/nautrouds/entrypoints`: Nautrouds 入口 UDS socket 檔案。
-
-## 服務權限
-
-Nautrouds 對 Unix Domain Sockets (UDS) 採用嚴格的權限模型，在確保安全與服務隔離的同時，維持高性能通訊。
-
-### 目錄結構
-
-| 目錄 | 用途 |
+| 路徑 | 用途 |
 | :--- | :--- |
-| `/var/run/nautrouds/services` | 後端服務放置 `.sock` 檔案的地方。 |
-| `/var/run/nautrouds/entrypoints` | Nautrouds 建立入口 Socket 的地方。 |
+| `/etc/nautrouds` | 設定檔（`.ntu`、`Ntufile`） |
+| `/var/run/nautrouds/services` | backend socket（`<service>/<node>.sock`） |
+| `/var/run/nautrouds/entrypoints` | Nautrouds 入口 socket |
 
-### 各服務的負載平衡策略
+## 負載平衡
 
-服務節點預設採 round-robin 負載平衡。在該服務目錄下放一個空的標記檔即可切換成其他策略。若同時存在多個標記檔，優先序較高的獲勝：
+同一個 service 的節點預設採 round-robin。
+
+在 service 目錄放一個空的標記檔即可切換策略；同時存在多個時，優先序高者生效：
 
 | 優先序 | 標記檔 |
 | :--- | :--- |
-| 1（最高） | `p2c.strategy` |
+| 1 | `p2c.strategy` |
 | 2 | `least_in_flight.strategy` |
 | 3（預設） | `round_robin.strategy` |
 
-新增、修改或刪除標記檔會自動生效：service 目錄下任何檔案異動（包含標記檔本身）都會觸發該 service 的重新掃描；週期性的全量掃描也會針對所有已知 service 重新評估一次，作為事件漏接時的保底機制。
+service 目錄內的任何異動都會觸發該 service 重新掃描；週期性全量掃描則補上漏接的事件。
 
-### 各節點的權重
+### 節點權重
 
-節點的 socket 檔名可以帶權重後綴：`<name>@<weight>.sock`。權重必須是 `[1, 100]` 範圍內的整數；沒有後綴預設為 1，格式錯誤或超出範圍會 fallback 成 1 並記一筆警告。
+socket 命名為 `<name>@<weight>.sock`，權重為 `[1, 100]` 的整數。
 
-round-robin 會依權重比例做平滑交錯排程（不會爆發式集中）；least-in-flight/p2c 則是拿在途請求數除以權重後再比較。
+- 沒有權重、格式錯誤或超出範圍都視為 1（格式錯誤會記錄警告）。
+- round-robin 依權重比例平滑交錯排程。
+- least-in-flight / p2c 以在途請求數除以權重比較。
 
-### 安全性注意事項
+## 安全性注意事項
 
-Nautrouds 是純 UDS（Unix Domain Socket）內部 proxy：它假設任何能連上其 socket 的行程，都已經在你的信任邊界之內。它不提供 TLS/mTLS，且部分 built-in 功能刻意設計得較為寬鬆，讓維運人員可以依照自己的環境調整信任模型。以下項目是會直接影響安全性的部署決策，請有意識地做出選擇，而不是沿用預設值。
+Nautrouds 是純 UDS 的內部 proxy，不提供 TLS/mTLS。
 
-#### 1. `ServicesDir` 權限
+它假設能連上其 socket 的行程都是可信的，且部分預設值刻意寬鬆。部署前請確認以下項目。
 
-`ServicesDir`（預設 `/var/run/nautrouds/services`）預設以 `01777`（world-writable + sticky bit）建立，目的是讓任何 backend 行程都能建立自己的 `<service>/<node>.sock`，不需要與 core 行程共用 UID/GID。可透過 `--services-dir-mode` / `NAUTROUDS_SERVICES_DIR_MODE` 調整（在 Docker image 中，同一個 env var 也會同步驅動 `docker/entrypoint.sh` 的 `chown`/`chmod`/ACL 設定）。
+### 1. `ServicesDir` 權限
 
-- **風險**：sticky bit 只能防止其他使用者**刪除**不屬於自己的檔案，**無法防止**他們建立新的服務目錄，或在既有服務底下偷偷放入節點，藉此攔截該服務的真實流量。
-- **建議**：單租戶主機/容器用預設值沒問題；共用主機/多租戶環境應讓 backend 服務以專屬群組執行，並將此權限收斂（例如 `0770`），而不是依賴 `01777`。
+`ServicesDir` 以 `01777` 建立，讓任何 backend 都能建立 socket，不需與 core 共用 UID/GID。
 
-#### 2. `$IPAllow` 的 header 模式沒有內建信任邊界
+可透過 `--services-dir-mode` / `NAUTROUDS_SERVICES_DIR_MODE` 調整；在 Docker image 中，這也會驅動 `docker/entrypoint.sh` 的 `chown`/`chmod`/ACL 設定。
+
+- **風險**：sticky bit 只能防止刪除。任何使用者仍可新增 service 目錄，或在既有 service 下放入節點來攔截流量。
+- **建議**：共用主機上讓 backend 以專屬群組執行，並收斂權限（例如 `0770`）。
+
+### 2. `$IPAllow` 的 header 模式
 
 `$IPAllow(headerKey, cidr)` 會信任 `headerKey` 收到的任何值。
 
-- **風險**：如果 Nautrouds 是第一個終結客戶端連線的節點，客戶端可以直接控制該 header，藉此繞過 CIDR 檢查。
-- **建議**：只有在確定有可信上游會覆寫（而非單純轉發）該 header 時，才使用 header 模式；否則請使用單參數形式，預設讀取 `X-Forwarded-For` 最右側的 entry。
+- **風險**：若 Nautrouds 是第一個 hop，客戶端可自行設定該 header 繞過檢查。
+- **建議**：只在上游會覆寫該 header 時使用 header 模式；否則改用單參數形式，讀取 `X-Forwarded-For` 最右側的 entry。
 
-#### 3. Metrics collector socket
+### 3. Metrics collector socket
 
-啟用時，metrics socket（預設 `metrics.sock`）預設會被 `chmod` 成 `0666`，讓任何本地 backend 都能無阻礙地推送 metrics。可透過 `--metrics-socket-mode` / `NAUTROUDS_METRICS_SOCKET_MODE` 調整。
+metrics socket 預設 `chmod` 成 `0666`，可透過 `--metrics-socket-mode` / `NAUTROUDS_METRICS_SOCKET_MODE` 調整。
 
-- **風險**：結合第 1 點，任何能連上該 socket 的本地行程都能送出偽造的 metrics frame，污染 counter/gauge。
-- **建議**：在共用主機上應將此權限收斂到你真正信任會回報 metrics 的行程群組，並在告警時把 metrics 視為不可信輸入。
+- **風險**：任何本地行程都能送出偽造的 metrics。
+- **建議**：共用主機上限制為可信的行程，告警時把 metrics 視為不可信輸入。
 
-#### 4. 動態 middleware / service name interpolation
+### 4. 請求資料 interpolation
 
-路由與 middleware 指令可以用請求資料（`{header.X}`、`{query.X}` 等）做樣板替換，且替換作用在整條指令上，而不只是字串參數內部。
+`{header.X}`、`{query.X}` 等樣板會套用在整條指令上，而不只是字串參數。
 
-- **風險**：若指令名稱/目標是從未經驗證的請求資料樣板化出來的，客戶端等於能自行決定要路由到哪個服務、或執行哪個 built-in。
-- **建議**：除非已驗證過該 tag 可能取到的所有值，否則應只在參數**值**（例如比對目標）中使用 interpolation，而不是指令名稱或 service name。
+- **風險**：若 service 或指令名稱取自請求資料，客戶端就能決定執行什麼。
+- **建議**：只對參數值做 interpolation，除非所有可能的值都已驗證。
 
-#### 5. `--instance-id` 為 entrypoint socket 檔名加上命名空間
+### 5. Entrypoint socket
 
-它替 entrypoint socket 檔名加上命名空間，讓多個共用同一個 `EntrypointDir` 的實例不會互相衝突。entrypoint socket 的存取控制完全取決於 `EntrypointDir` 的檔案系統權限。
+`--instance-id` 為 entrypoint socket 檔名加上命名空間，讓共用 `EntrypointDir` 的實例不會衝突。
 
-#### 6. 權限降級 (Privilege Dropping，Docker)
+存取控制完全取決於 `EntrypointDir` 的檔案系統權限。
 
-Nautrouds Docker 鏡像以 `root` 身分啟動以初始化環境權限，然後立即降權至非 root 的 `nautrouds` 使用者執行。
+### 6. 權限降級（Docker）
 
-- **UID/GID**：`nautrouds` 使用者/群組的 UID/GID 預設由 Alpine 在建置時自動分配；可設定 `NAUTROUDS_UID` / `NAUTROUDS_GID` 在容器啟動時重新對應（例如對齊 bind-mount 主機目錄的擁有權）——`docker/entrypoint.sh` 會在降權前用指定的 ID 重建該使用者/群組。
+image 以 `root` 啟動以初始化環境，之後降權為非 root 的 `nautrouds` 使用者。
 
-### 後端實作建議
+設定 `NAUTROUDS_UID` / `NAUTROUDS_GID` 可在啟動時重新對應該使用者的 ID（例如對齊 bind-mount 目錄）；未設定則沿用 Alpine 建置時分配的 ID。
 
-為了確保穩定的通訊，後端服務應該：
--   **建議權限**：將您的 Socket 權限設定為 `0666`。雖然系統會嘗試透過 ACL 自動管理權限，但由於 ACL 在部分環境下對 Socket 檔案可能失效，設定為 `0666` 是最保險的做法。
--   **以非 Root 執行**：確保後端服務在自己的容器中以專用使用者（非 `root`）身分執行。
+## Backend 建議
 
-## 授權
-
-本專案依照 LICENSE 檔案中的條款授權。
+- socket 權限設為 `0666`。Nautrouds 雖會嘗試設定 ACL，但部分環境下對 socket 不可靠。
+- 以專屬的非 root 使用者執行 backend。

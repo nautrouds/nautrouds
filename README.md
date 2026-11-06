@@ -12,60 +12,36 @@ English | [繁體中文](README.zh-TW.md)
 
 ---
 
-Nautrouds is a dynamic service management and proxy system designed for high-availability request routing and service discovery. It facilitates seamless traffic management through Unix Domain Sockets (UDS) and hot-reloading configurations.
+Nautrouds is a reverse proxy with service discovery over Unix Domain Sockets (UDS).
 
-## Core Features
-
-- **Hot-Reloading Configurations**: Automatically tracks changes to `.ntu` or `Ntufile` configuration files.
-- **Dynamic Service Discovery**: Real-time registry management for active services.
-- **UDS Proxying**: Efficient request forwarding via Unix Domain Sockets.
-- **Graceful Lifecycle Management**: Clean automated setup and teardown of socket listeners and service states.
+- **Hot-reloading**: watches `.ntu` / `Ntufile` configs and applies changes automatically.
+- **Service discovery**: backends register by placing a socket in the services directory.
+- **UDS proxying**: forwards requests to backends over UDS.
+- **Lifecycle management**: sets up and tears down socket listeners and service state automatically.
 
 ## Getting Started
 
-### Prerequisites
-
-- Go 1.25.6 or higher.
-
-### Installation
+Requires Go 1.25.6+.
 
 ```bash
-# Clone the repository
 git clone https://github.com/nautrouds/nautrouds.git
 cd nautrouds
-
-# Build the core binary
 go build -o bin/nautrouds ./cmd/core
-
-# Build the ntuc compiler
 go build -o bin/ntuc ./cmd/ntuc
 ```
 
-### Usage
-
-Run the Nautrouds core service:
+Compile an `Ntufile` with `ntuc`, then run the core service:
 
 ```bash
-./bin/nautrouds --config=my-app.ntu
+./bin/ntuc -i Ntufile -o nautrouds.ntu
+./bin/nautrouds --config=nautrouds.ntu
 ```
 
 ## Configuration
 
-Nautrouds uses an `Ntufile` as a configuration file, which is compiled by the `ntuc` compiler into a binary format (`.ntu`) for hot-reloading by the core engine.
-
-### Configuration Compilation (ntuc)
-
-Use the `ntuc` tool to compile your `Ntufile` into a binary format readable by the Nautrouds core:
-
-```bash
-# Basic compilation command
-./bin/ntuc -i Ntufile -o nautrouds.ntu
-```
-
-### Configuration Example (Ntufile)
+Routes are defined in an `Ntufile`:
 
 ```text
-# Basic routing rules
 GET /api/v1/users user-service
     $SetHeader("X-Source", "Nautrouds")
     $BasicAuth("admin", "secret")
@@ -74,114 +50,100 @@ POST /upload/* storage-service
     $IPAllow("192.168.1.0/24")
 ```
 
-For detailed syntax specifications, built-in middleware, and virtual service listings, please refer to the [Syntax Guide](./docs/syntax.md). 
-For CLI usage and core configuration, see the [Tooling Guide](./docs/ntuc.md).
+- Syntax, middleware, and virtual services: [Syntax Guide](./docs/syntax.md)
+- CLI flags and environment variables: [Tooling Guide](./docs/ntuc.md)
 
-## Docker Support
+## Docker
 
-Nautrouds can be deployed using Docker and Docker Compose. This is the recommended way to experience the dynamic UDS proxying in a controlled environment.
+```bash
+docker compose -f examples/docker-compose.yml up --build
+```
 
-### Quick Start with Docker Compose
+The example includes a `gateway` (socat) that bridges TCP `8080` to the Nautrouds UDS entrypoint:
 
-1. **Build and start the stack**:
-   ```bash
-   docker compose -f examples/docker-compose.yml up --build
-   ```
+```bash
+curl http://localhost:8080/
+curl http://localhost:8080/health
+curl http://localhost:8080/debug/services
+```
 
-
-2. **Test the proxy**:
-   The example setup includes a `gateway` (socat) that bridges TCP port `8080` to the Nautrouds UDS entrypoint.
-   ```bash
-   # Test the backend service
-   curl http://localhost:8080/
-
-   # Test virtual services
-   curl http://localhost:8080/health
-   curl http://localhost:8080/debug/services
-   ```
-
-3. **Directory Structure for Docker**:
-   - `/etc/nautrouds`: Configuration files (`.ntu`, `Ntufile`).
-   - `/var/run/nautrouds/services`: Backend UDS sockets.
-   - `/var/run/nautrouds/entrypoints`: Nautrouds entrypoint sockets.
-
-## Service Permission
-
-Nautrouds uses a strict permission model for Unix Domain Sockets (UDS) to ensure security and service isolation while maintaining high-performance communication.
-
-### Directory Structure
-
-| Directory | Purpose |
+| Path | Purpose |
 | :--- | :--- |
-| `/var/run/nautrouds/services` | Where backend services place their `.sock` files. |
-| `/var/run/nautrouds/entrypoints` | Where Nautrouds creates its entrypoint sockets. |
+| `/etc/nautrouds` | Configuration files (`.ntu`, `Ntufile`) |
+| `/var/run/nautrouds/services` | Backend sockets (`<service>/<node>.sock`) |
+| `/var/run/nautrouds/entrypoints` | Nautrouds entrypoint sockets |
 
-### Per-Service Load Balancing Strategy
+## Load Balancing
 
-By default, a service's nodes are balanced round-robin. Drop an empty marker file into that service's directory to opt into a different strategy. If multiple markers are present, the highest-priority one wins:
+Nodes in a service are balanced round-robin by default.
+
+To change the strategy, place an empty marker file in the service directory. If several are present, the highest priority wins:
 
 | Priority | Marker file |
 | :--- | :--- |
-| 1 (highest) | `p2c.strategy` |
+| 1 | `p2c.strategy` |
 | 2 | `least_in_flight.strategy` |
 | 3 (default) | `round_robin.strategy` |
 
-Adding, editing, or removing the marker takes effect automatically: any filesystem change inside a service's directory (including to the marker itself) triggers a fresh scan of that service, and the periodic full scan re-evaluates every known service as a backstop even if a filesystem event was ever missed.
+Changes inside a service directory trigger a rescan of that service; a periodic full scan catches any missed events.
 
-### Per-Node Weight
+### Node Weight
 
-A node's socket filename can carry a weight suffix: `<name>@<weight>.sock`. Weight must be an integer in `[1, 100]`; a missing suffix defaults to 1, and an invalid or out-of-range value falls back to 1 with a warning logged.
+Name the socket `<name>@<weight>.sock`, where weight is an integer in `[1, 100]`.
 
-Round-robin schedules proportionally via smooth interleaving (not bursts); least-in-flight/p2c divide in-flight count by weight before comparing.
+- A missing, invalid, or out-of-range weight is treated as 1 (invalid values log a warning).
+- Round-robin interleaves nodes smoothly in proportion to weight.
+- least-in-flight / p2c compare in-flight count divided by weight.
 
-### Security Considerations
+## Security Considerations
 
-Nautrouds is a UDS-only internal proxy: it assumes every process able to reach its sockets already sits inside your trust boundary. It does not provide TLS/mTLS, and several built-ins are deliberately permissive so operators can shape the trust model to their environment. The points below are deployment decisions that directly affect security — make them consciously rather than leaving them at defaults.
+Nautrouds is a UDS-only internal proxy without TLS/mTLS.
 
-#### 1. `ServicesDir` permissions
+It assumes every process that can reach its sockets is trusted, and several defaults are deliberately permissive. Review the following before deploying.
 
-`ServicesDir` (default `/var/run/nautrouds/services`) is created with mode `01777` (world-writable, sticky bit) by default so any backend process can create its own `<service>/<node>.sock` without sharing a UID/GID with the core process. Configurable via `--services-dir-mode` / `NAUTROUDS_SERVICES_DIR_MODE` (in the Docker image, the same env var also drives `docker/entrypoint.sh`'s `chown`/`chmod`/ACL setup).
+### 1. `ServicesDir` permissions
 
-- **Risk**: the sticky bit only stops other users from *deleting* files they don't own — it does **not** stop them from creating a new service directory or planting a node under an existing one, which would let that process intercept live traffic for that service.
-- **Guidance**: fine on a single-tenant host/container. On a shared/multi-tenant host, run backend services under a dedicated group and narrow this mode (e.g. `0770`) instead of relying on `01777`.
+`ServicesDir` is created with mode `01777` so any backend can create its socket without sharing a UID/GID with the core.
 
-#### 2. `$IPAllow` header mode has no built-in trust boundary
+Configure with `--services-dir-mode` / `NAUTROUDS_SERVICES_DIR_MODE`; in the Docker image this also drives the `chown`/`chmod`/ACL setup in `docker/entrypoint.sh`.
+
+- **Risk**: the sticky bit only prevents deletion. Any user can still add a service directory or a node to an existing one and intercept its traffic.
+- **Guidance**: on shared hosts, run backends under a dedicated group and narrow the mode (e.g. `0770`).
+
+### 2. `$IPAllow` header mode
 
 `$IPAllow(headerKey, cidr)` trusts whatever value arrives in `headerKey`.
 
-- **Risk**: if Nautrouds is the first hop terminating client connections, the client controls that header directly and can bypass the CIDR check.
-- **Guidance**: only use the header form behind a trusted upstream guaranteed to overwrite (not merely forward) that header; otherwise use the single-argument form, which reads the rightmost `X-Forwarded-For` entry by default.
+- **Risk**: if Nautrouds is the first hop, clients can set the header and bypass the check.
+- **Guidance**: use the header form only behind an upstream that overwrites the header. Otherwise use the single-argument form, which reads the rightmost `X-Forwarded-For` entry.
 
-#### 3. Metrics collector socket
+### 3. Metrics collector socket
 
-When enabled, the metrics socket (default `metrics.sock`) is `chmod`'d to `0666` by default so any local backend can push metrics without permission friction. Configurable via `--metrics-socket-mode` / `NAUTROUDS_METRICS_SOCKET_MODE`.
+The metrics socket is `chmod`'d to `0666` by default. Configure with `--metrics-socket-mode` / `NAUTROUDS_METRICS_SOCKET_MODE`.
 
-- **Risk**: combined with point 1, any local process able to reach the socket can submit forged metrics frames, polluting counters/gauges.
-- **Guidance**: on shared hosts, narrow this mode to the group of processes you trust to report metrics, and treat metrics as untrusted input when alerting.
+- **Risk**: any local process can push forged metrics.
+- **Guidance**: on shared hosts, restrict it to trusted processes and treat metrics as untrusted input when alerting.
 
-#### 4. Dynamic middleware / service-name interpolation
+### 4. Request-data interpolation
 
-Route and middleware directives can be templated from request data (`{header.X}`, `{query.X}`, ...), and the substitution applies to the whole directive, not just string arguments.
+Templates such as `{header.X}` and `{query.X}` are substituted across the whole directive, not just string arguments.
 
-- **Risk**: a client can effectively choose which service or built-in runs if a directive name/target is templated from unvalidated request data.
-- **Guidance**: prefer interpolating only argument *values* (e.g. a comparison target), not directive names or service names, unless every value the tag can take has been validated.
+- **Risk**: templating a service or directive name from request data lets clients choose what runs.
+- **Guidance**: interpolate only argument values, unless every possible value has been validated.
 
-#### 5. `--instance-id` scopes entrypoint socket filenames
+### 5. Entrypoint sockets
 
-It namespaces entrypoint socket filenames so multiple instances sharing an `EntrypointDir` don't collide. Access control for entrypoint sockets is entirely a function of filesystem permissions on `EntrypointDir`.
+`--instance-id` namespaces entrypoint socket filenames so instances sharing an `EntrypointDir` don't collide.
 
-#### 6. Privilege dropping (Docker)
+Access control relies entirely on the filesystem permissions of `EntrypointDir`.
 
-The Nautrouds Docker image starts as `root` to initialize the environment and then immediately drops privileges to a non-root `nautrouds` user for execution.
+### 6. Privilege dropping (Docker)
 
-- **UID/GID**: the `nautrouds` user/group's UID/GID default to whatever Alpine assigns at build time; set `NAUTROUDS_UID` / `NAUTROUDS_GID` to remap them at container start (e.g. to match a bind-mounted host directory's ownership) — `docker/entrypoint.sh` recreates the user/group with the requested IDs before dropping privileges.
+The image starts as `root` to initialize the environment, then drops to the non-root `nautrouds` user.
 
-### Backend Implementation Advice
+Set `NAUTROUDS_UID` / `NAUTROUDS_GID` to remap that user's IDs at startup (e.g. to match a bind-mounted directory). Otherwise the IDs Alpine assigned at build time are used.
 
-To ensure stable communication, backend services should:
--   **Recommended Permissions**: Set your socket permissions to `0666`. While Nautrouds attempts to manage permissions via ACLs, they can be unreliable for socket files in certain environments; `0666` remains the safest default.
--   **Run as Non-Root**: Ensure backend services run as a dedicated user (not `root`) within their own containers.
+## Backend Recommendations
 
-## License
-
-This project is licensed under the terms of the LICENSE file.
+- Set socket permissions to `0666`. Nautrouds also tries ACLs, but they are unreliable on sockets in some environments.
+- Run backends as a dedicated non-root user.
