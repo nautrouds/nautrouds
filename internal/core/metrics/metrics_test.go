@@ -2,23 +2,21 @@ package metrics
 
 import (
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMetrics(t *testing.T) {
-	// Test legacy methods
 	Global.IncRequests()
 	Global.IncErrors()
 	Global.IncUpdates()
 	Global.AddActive(5)
 	Global.AddActive(-2)
 
-	// Test new metrics
 	Global.RequestDuration.WithLabelValues("GET", "/test").Observe(0.1)
 	Global.HTTPRequestsTotal.WithLabelValues("service-a", "200", "GET").Inc()
 
-	// Verify Prometheus output
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	Global.WritePrometheus(w, req)
@@ -36,8 +34,6 @@ func TestMetrics(t *testing.T) {
 	}
 
 	for _, em := range expectedMetrics {
-		if !strings.Contains(body, em) {
-			t.Errorf("Expected metric %q not found in output", em)
-		}
+		assert.Contains(t, body, em)
 	}
 }

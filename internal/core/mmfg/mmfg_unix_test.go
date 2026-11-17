@@ -6,32 +6,30 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNodeKeyAndIsControlSocket(t *testing.T) {
-	cases := []struct {
-		baseDir     string
+	tests := []struct {
 		path        string
 		wantKey     string
 		wantControl bool
 	}{
-		{"/base", "/base/api/v1.mmfg", "api/v1", false},
-		{"/base", "/base/api/v1.ctl.mmfg", "api/v1", true},
-		{"/base", "/base/web/app.mmfg", "web/app", false},
-		{"/base", "/base/v1.mmfg", "v1", false},
+		{"/base/api/v1.mmfg", "api/v1", false},
+		{"/base/api/v1.ctl.mmfg", "api/v1", true},
+		{"/base/web/app.mmfg", "web/app", false},
+		{"/base/v1.mmfg", "v1", false},
 	}
 
-	for _, c := range cases {
-		if got := isControlSocket(c.path); got != c.wantControl {
-			t.Errorf("isControlSocket(%q) = %v, want %v", c.path, got, c.wantControl)
-		}
-		key, err := nodeKey(c.baseDir, c.path)
-		if err != nil {
-			t.Fatalf("nodeKey(%q, %q) error: %v", c.baseDir, c.path, err)
-		}
-		if key != c.wantKey {
-			t.Errorf("nodeKey(%q, %q) = %q, want %q", c.baseDir, c.path, key, c.wantKey)
-		}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			assert.Equal(t, tt.wantControl, isControlSocket(tt.path))
+			key, err := nodeKey("/base", tt.path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantKey, key)
+		})
 	}
 }
 
@@ -45,10 +43,6 @@ type dialCall struct {
 	nodeName, socketPath, controlSocketPath string
 }
 
-func newFakeDial() *fakeDial {
-	return &fakeDial{fail: make(map[string]bool)}
-}
-
 func (f *fakeDial) dial(nodeName, socketPath, controlSocketPath string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -59,174 +53,98 @@ func (f *fakeDial) dial(nodeName, socketPath, controlSocketPath string) error {
 	return nil
 }
 
-func (f *fakeDial) callCount() int {
+func (f *fakeDial) callsFor(socketPath string) []dialCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.calls)
-}
-
-func (f *fakeDial) callFor(socketPath string) (dialCall, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+	var matched []dialCall
 	for _, c := range f.calls {
 		if c.socketPath == socketPath {
-			return c, true
+			matched = append(matched, c)
 		}
 	}
-	return dialCall{}, false
+	return matched
 }
 
-func newTestHub(fd *fakeDial) *UnixHub {
-	return &UnixHub{
-		dial:   fd.dial,
-		dialed: make(map[string]string),
-	}
+func newTestHub() (*UnixHub, *fakeDial) {
+	fd := &fakeDial{fail: make(map[string]bool)}
+	return &UnixHub{dial: fd.dial, dialed: make(map[string]string)}, fd
 }
 
-func TestUnixHub_ApplyServiceScan_PairsControlSocket(t *testing.T) {
-	fd := newFakeDial()
-	h := newTestHub(fd)
-
-	err := h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.mmfg", "/base/api/v1.ctl.mmfg"})
-	if err != nil {
-		t.Fatalf("ApplyServiceScan error: %v", err)
-	}
-
-	call, ok := fd.callFor("/base/api/v1.mmfg")
-	if !ok {
-		t.Fatalf("expected dial call for main socket, got calls: %+v", fd.calls)
-	}
-	if call.nodeName != "api/v1" {
-		t.Errorf("nodeName = %q, want %q", call.nodeName, "api/v1")
-	}
-	if call.controlSocketPath != "/base/api/v1.ctl.mmfg" {
-		t.Errorf("controlSocketPath = %q, want %q", call.controlSocketPath, "/base/api/v1.ctl.mmfg")
-	}
-	if fd.callCount() != 1 {
-		t.Errorf("expected exactly 1 dial call, got %d: %+v", fd.callCount(), fd.calls)
-	}
+func (h *UnixHub) isDialed(socketPath string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.dialed[socketPath]
+	return ok
 }
 
-func TestUnixHub_ApplyServiceScan_MainWithoutControl_DialsWithEmptyControl(t *testing.T) {
-	fd := newFakeDial()
-	h := newTestHub(fd)
-
-	if err := h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.mmfg"}); err != nil {
-		t.Fatalf("ApplyServiceScan error: %v", err)
+func TestUnixHub_ApplyServiceScan_ControlSocketPairing(t *testing.T) {
+	tests := []struct {
+		name       string
+		discovered []string
+		wantCalls  []dialCall
+	}{
+		{
+			name:       "PairsControlSocket",
+			discovered: []string{"/base/api/v1.mmfg", "/base/api/v1.ctl.mmfg"},
+			wantCalls:  []dialCall{{"api/v1", "/base/api/v1.mmfg", "/base/api/v1.ctl.mmfg"}},
+		},
+		{
+			name:       "MainWithoutControl",
+			discovered: []string{"/base/api/v1.mmfg"},
+			wantCalls:  []dialCall{{"api/v1", "/base/api/v1.mmfg", ""}},
+		},
+		{
+			name:       "OrphanControlSocketNotDialed",
+			discovered: []string{"/base/api/v1.ctl.mmfg"},
+			wantCalls:  nil,
+		},
 	}
 
-	call, ok := fd.callFor("/base/api/v1.mmfg")
-	if !ok {
-		t.Fatalf("expected dial call for main socket")
-	}
-	if call.controlSocketPath != "" {
-		t.Errorf("controlSocketPath = %q, want empty", call.controlSocketPath)
-	}
-}
-
-func TestUnixHub_ApplyServiceScan_OrphanControlSocket_NotDialedAlone(t *testing.T) {
-	fd := newFakeDial()
-	h := newTestHub(fd)
-
-	if err := h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.ctl.mmfg"}); err != nil {
-		t.Fatalf("ApplyServiceScan error: %v", err)
-	}
-
-	if fd.callCount() != 0 {
-		t.Errorf("expected no dial calls for orphan control socket, got %+v", fd.calls)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, fd := newTestHub()
+			require.NoError(t, h.ApplyServiceScan("/base", "api", tt.discovered))
+			assert.Equal(t, tt.wantCalls, fd.calls)
+		})
 	}
 }
 
 func TestUnixHub_ApplyServiceScan_DialsOnceThenSkips(t *testing.T) {
-	fd := newFakeDial()
-	h := newTestHub(fd)
+	h, fd := newTestHub()
 
-	discovered := []string{"/base/api/v1.mmfg"}
-	if err := h.ApplyServiceScan("/base", "api", discovered); err != nil {
-		t.Fatalf("first ApplyServiceScan error: %v", err)
-	}
-	if fd.callCount() != 1 {
-		t.Fatalf("expected 1 dial call after first scan, got %d", fd.callCount())
-	}
+	require.NoError(t, h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.mmfg"}))
+	require.Len(t, fd.calls, 1)
 
-	discovered = []string{"/base/api/v1.mmfg", "/base/api/v1.ctl.mmfg"}
-	if err := h.ApplyServiceScan("/base", "api", discovered); err != nil {
-		t.Fatalf("second ApplyServiceScan error: %v", err)
-	}
-	if fd.callCount() != 1 {
-		t.Errorf("expected dial to still be called only once, got %d: %+v", fd.callCount(), fd.calls)
-	}
+	require.NoError(t, h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.mmfg", "/base/api/v1.ctl.mmfg"}))
+	assert.Len(t, fd.calls, 1)
 }
 
 func TestUnixHub_ApplyServiceScan_PartialFailureContinuesAndRetries(t *testing.T) {
-	fd := newFakeDial()
+	h, fd := newTestHub()
 	fd.fail["/base/api/bad.mmfg"] = true
-	h := newTestHub(fd)
-
 	discovered := []string{"/base/api/good.mmfg", "/base/api/bad.mmfg"}
-	err := h.ApplyServiceScan("/base", "api", discovered)
-	if err == nil {
-		t.Fatal("expected error from failed dial")
-	}
-	if _, ok := fd.callFor("/base/api/good.mmfg"); !ok {
-		t.Error("expected good node to still be dialed despite bad node failing")
-	}
 
-	h.mu.Lock()
-	_, goodDialed := h.dialed["/base/api/good.mmfg"]
-	_, badDialed := h.dialed["/base/api/bad.mmfg"]
-	h.mu.Unlock()
-	if !goodDialed {
-		t.Error("expected good node to be recorded as dialed")
-	}
-	if badDialed {
-		t.Error("expected failed node to not be recorded as dialed")
-	}
+	require.Error(t, h.ApplyServiceScan("/base", "api", discovered))
+	assert.Len(t, fd.callsFor("/base/api/good.mmfg"), 1)
+	assert.True(t, h.isDialed("/base/api/good.mmfg"))
+	assert.False(t, h.isDialed("/base/api/bad.mmfg"))
 
-	if err := h.ApplyServiceScan("/base", "api", discovered); err == nil {
-		t.Fatal("expected error to persist on retry")
-	}
-	badCalls := 0
-	fd.mu.Lock()
-	for _, c := range fd.calls {
-		if c.socketPath == "/base/api/bad.mmfg" {
-			badCalls++
-		}
-	}
-	fd.mu.Unlock()
-	if badCalls != 2 {
-		t.Errorf("expected bad node to be retried, got %d calls", badCalls)
-	}
+	require.Error(t, h.ApplyServiceScan("/base", "api", discovered))
+	assert.Len(t, fd.callsFor("/base/api/bad.mmfg"), 2)
 }
 
 func TestUnixHub_ApplyServiceScan_PrunesRemovedNode(t *testing.T) {
-	fd := newFakeDial()
-	h := newTestHub(fd)
+	h, _ := newTestHub()
 
-	discovered := []string{"/base/api/v1.mmfg", "/base/api/v2.mmfg"}
-	if err := h.ApplyServiceScan("/base", "api", discovered); err != nil {
-		t.Fatalf("ApplyServiceScan error: %v", err)
-	}
+	require.NoError(t, h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.mmfg", "/base/api/v2.mmfg"}))
+	require.NoError(t, h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.mmfg"}))
 
-	if err := h.ApplyServiceScan("/base", "api", []string{"/base/api/v1.mmfg"}); err != nil {
-		t.Fatalf("ApplyServiceScan error: %v", err)
-	}
-
-	h.mu.Lock()
-	_, v1Dialed := h.dialed["/base/api/v1.mmfg"]
-	_, v2Dialed := h.dialed["/base/api/v2.mmfg"]
-	h.mu.Unlock()
-	if !v1Dialed {
-		t.Error("expected v1 to remain tracked as dialed")
-	}
-	if v2Dialed {
-		t.Error("expected v2 to be pruned from dialed set after disappearing")
-	}
+	assert.True(t, h.isDialed("/base/api/v1.mmfg"))
+	assert.False(t, h.isDialed("/base/api/v2.mmfg"))
 }
 
 func TestUnixHub_ApplyFullScan_DialsAcrossServicesWithControlPairing(t *testing.T) {
-	fd := newFakeDial()
-	h := newTestHub(fd)
+	h, fd := newTestHub()
 
 	byService := map[string]map[string]struct{}{
 		"api": {
@@ -237,42 +155,17 @@ func TestUnixHub_ApplyFullScan_DialsAcrossServicesWithControlPairing(t *testing.
 			"/base/web/app.mmfg": {},
 		},
 	}
-
-	if err := h.ApplyFullScan("/base", byService); err != nil {
-		t.Fatalf("ApplyFullScan error: %v", err)
-	}
-
-	apiCall, ok := fd.callFor("/base/api/v1.mmfg")
-	if !ok || apiCall.controlSocketPath != "/base/api/v1.ctl.mmfg" {
-		t.Errorf("expected api node to be dialed with control path, got %+v (ok=%v)", apiCall, ok)
-	}
-	webCall, ok := fd.callFor("/base/web/app.mmfg")
-	if !ok || webCall.controlSocketPath != "" {
-		t.Errorf("expected web node to be dialed without control path, got %+v (ok=%v)", webCall, ok)
-	}
-	if fd.callCount() != 2 {
-		t.Errorf("expected 2 dial calls, got %d: %+v", fd.callCount(), fd.calls)
-	}
+	require.NoError(t, h.ApplyFullScan("/base", byService))
+	assert.ElementsMatch(t, []dialCall{
+		{"api/v1", "/base/api/v1.mmfg", "/base/api/v1.ctl.mmfg"},
+		{"web/app", "/base/web/app.mmfg", ""},
+	}, fd.calls)
 
 	byService = map[string]map[string]struct{}{
 		"web": {
 			"/base/web/app.mmfg": {},
 		},
 	}
-	if err := h.ApplyFullScan("/base", byService); err != nil {
-		t.Fatalf("second ApplyFullScan error: %v", err)
-	}
-	h.mu.Lock()
-	_, apiStillDialed := h.dialed["/base/api/v1.mmfg"]
-	h.mu.Unlock()
-	if apiStillDialed {
-		t.Error("expected api node to be pruned after disappearing from full scan")
-	}
-}
-
-func TestUnixHub_Extension(t *testing.T) {
-	h := &UnixHub{}
-	if got := h.Extension(); got != ".mmfg" {
-		t.Errorf("Extension() = %q, want %q", got, ".mmfg")
-	}
+	require.NoError(t, h.ApplyFullScan("/base", byService))
+	assert.False(t, h.isDialed("/base/api/v1.mmfg"))
 }

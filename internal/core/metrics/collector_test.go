@@ -3,8 +3,10 @@ package metrics_test
 import (
 	"encoding/binary"
 	"net"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,18 +14,17 @@ import (
 
 	"github.com/nautrouds/tentacle-metrics/pb"
 	"github.com/sigurn/crc16"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
 var crcTable = crc16.MakeTable(crc16.CRC16_X_25)
 
-// buildFrame encodes a MetricPayload into a wire frame (header + payload + CRC16).
 func buildFrame(t *testing.T, msg *pb.MetricPayload) []byte {
 	t.Helper()
 	payload, err := proto.Marshal(msg)
-	if err != nil {
-		t.Fatalf("proto.Marshal: %v", err)
-	}
+	require.NoError(t, err)
 
 	header := make([]byte, 6)
 	header[0] = metrics.MagicByte
@@ -39,134 +40,42 @@ func buildFrame(t *testing.T, msg *pb.MetricPayload) []byte {
 	return frame
 }
 
-func TestCollector_StartStop(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-basic-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
+func dialCollector(t *testing.T) net.Conn {
+	t.Helper()
+	sockPath := filepath.Join(t.TempDir(), "metrics.sock")
 	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
+	require.NoError(t, c.Start())
+	t.Cleanup(c.Stop)
 
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start failed: %v", err)
-	}
-	c.Stop()
+	conn, err := net.DialTimeout("unix", sockPath, time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	return conn
 }
 
 func TestCollector_StartRemovesStaleSocket(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-stale-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	// Create a stale file at the socket path before starting
-	os.WriteFile(sockPath, []byte("stale"), 0644)
+	sockPath := filepath.Join(t.TempDir(), "metrics.sock")
+	require.NoError(t, os.WriteFile(sockPath, []byte("stale"), 0644))
 
 	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start should remove stale file and succeed: %v", err)
-	}
+	require.NoError(t, c.Start())
 	c.Stop()
 }
 
-func TestCollector_ValidGaugeFrame(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-gauge-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer c.Stop()
-
-	conn, err := net.DialTimeout("unix", sockPath, time.Second)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer conn.Close()
-
-	frame := buildFrame(t, &pb.MetricPayload{
-		TentacleId: "test-t1",
-		Service:    "test-svc",
-		Metrics: []*pb.Metric{
+func TestCollector_ValidFrame(t *testing.T) {
+	tests := []struct {
+		name    string
+		metrics []*pb.Metric
+	}{
+		{"Gauge", []*pb.Metric{
 			{Name: "tentacle_active_connections", Type: pb.Metric_GAUGE, Value: 7},
-		},
-	})
-	if _, err := conn.Write(frame); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-
-	// Give the goroutine time to process the frame
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestCollector_ValidCounterFrame(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-counter-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer c.Stop()
-
-	conn, err := net.DialTimeout("unix", sockPath, time.Second)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer conn.Close()
-
-	frame := buildFrame(t, &pb.MetricPayload{
-		TentacleId: "test-t2",
-		Service:    "test-svc",
-		Metrics: []*pb.Metric{
+		}},
+		{"Counter", []*pb.Metric{
 			{Name: "tentacle_connection_attempts_total", Type: pb.Metric_COUNTER, Value: 3},
 			{Name: "tentacle_connection_failures_total", Type: pb.Metric_COUNTER, Value: 1},
 			{Name: "tentacle_bytes_transmitted_total", Type: pb.Metric_COUNTER, Value: 1024},
-		},
-	})
-	if _, err := conn.Write(frame); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestCollector_ValidHistogramFrame(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-hist-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer c.Stop()
-
-	conn, err := net.DialTimeout("unix", sockPath, time.Second)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer conn.Close()
-
-	frame := buildFrame(t, &pb.MetricPayload{
-		TentacleId: "test-t3",
-		Service:    "test-svc",
-		Metrics: []*pb.Metric{
+		}},
+		{"Histogram", []*pb.Metric{
 			{
 				Name: "tentacle_transport_latency_seconds",
 				Type: pb.Metric_HISTOGRAM,
@@ -175,112 +84,68 @@ func TestCollector_ValidHistogramFrame(t *testing.T) {
 					{Le: 0.01, Count: 1},
 				},
 			},
-		},
-	})
-	if _, err := conn.Write(frame); err != nil {
-		t.Fatalf("Write: %v", err)
+		}},
 	}
-	time.Sleep(50 * time.Millisecond)
-}
 
-func TestCollector_InvalidMagicByte(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-magic-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := dialCollector(t)
+			tentacleID := "test-" + tt.name
+			idLabel := `tentacle_id="` + tentacleID + `"`
 
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer c.Stop()
+			frame := buildFrame(t, &pb.MetricPayload{
+				TentacleId: tentacleID,
+				Service:    "test-svc",
+				Metrics:    tt.metrics,
+			})
+			_, err := conn.Write(frame)
+			require.NoError(t, err)
 
-	conn, err := net.DialTimeout("unix", sockPath, time.Second)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer conn.Close()
-
-	// Send a frame with wrong magic byte — server should close the connection
-	badHeader := []byte{0xFF, metrics.ProtoVersion, 0, 0, 0, 0, 0, 0}
-	conn.Write(badHeader)
-
-	// Verify server closed the connection
-	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	buf := make([]byte, 1)
-	_, readErr := conn.Read(buf)
-	if readErr == nil {
-		t.Error("expected connection to be closed after invalid magic byte")
+			for _, m := range tt.metrics {
+				assert.Eventually(t, func() bool {
+					w := httptest.NewRecorder()
+					req := httptest.NewRequest("GET", "/metrics", nil)
+					metrics.Global.WritePrometheus(w, req)
+					body := w.Body.String()
+					for line := range strings.SplitSeq(body, "\n") {
+						if strings.HasPrefix(line, m.Name) && strings.Contains(line, idLabel) {
+							return true
+						}
+					}
+					return false
+				}, time.Second, 10*time.Millisecond, m.Name)
+			}
+		})
 	}
 }
 
-func TestCollector_CRCMismatch(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-crc-*")
-	if err != nil {
-		t.Fatal(err)
+func TestCollector_InvalidFrameClosesConnection(t *testing.T) {
+	oversizedHeader := make([]byte, 6)
+	oversizedHeader[0] = metrics.MagicByte
+	oversizedHeader[1] = metrics.ProtoVersion
+	binary.BigEndian.PutUint32(oversizedHeader[2:], metrics.MaxFrameSize+1)
+
+	crcMismatch := buildFrame(t, &pb.MetricPayload{TentacleId: "x", Service: "y"})
+	crcMismatch[len(crcMismatch)-1] ^= 0xFF
+
+	tests := []struct {
+		name  string
+		frame []byte
+	}{
+		{"InvalidMagicByte", []byte{0xFF, metrics.ProtoVersion, 0, 0, 0, 0, 0, 0}},
+		{"CRCMismatch", crcMismatch},
+		{"FrameTooLarge", oversizedHeader},
 	}
-	defer os.RemoveAll(tmpDir)
 
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer c.Stop()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := dialCollector(t)
+			conn.Write(tt.frame)
 
-	conn, err := net.DialTimeout("unix", sockPath, time.Second)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer conn.Close()
-
-	// Build a valid frame then corrupt the checksum
-	frame := buildFrame(t, &pb.MetricPayload{TentacleId: "x", Service: "y"})
-	frame[len(frame)-1] ^= 0xFF // flip last byte of checksum
-
-	conn.Write(frame)
-
-	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	buf := make([]byte, 1)
-	_, readErr := conn.Read(buf)
-	if readErr == nil {
-		t.Error("expected connection to be closed after CRC mismatch")
-	}
-}
-
-func TestCollector_FrameTooLarge(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "collector-large-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sockPath := filepath.Join(tmpDir, "metrics.sock")
-	c := metrics.NewCollector(sockPath, 0666, metrics.Global)
-	if err := c.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer c.Stop()
-
-	conn, err := net.DialTimeout("unix", sockPath, time.Second)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer conn.Close()
-
-	// Send a header claiming length > MaxFrameSize
-	header := make([]byte, 6)
-	header[0] = metrics.MagicByte
-	header[1] = metrics.ProtoVersion
-	binary.BigEndian.PutUint32(header[2:], metrics.MaxFrameSize+1)
-	conn.Write(header)
-
-	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	buf := make([]byte, 1)
-	_, readErr := conn.Read(buf)
-	if readErr == nil {
-		t.Error("expected connection to be closed for oversized frame")
+			deadline := time.Now().Add(500 * time.Millisecond)
+			conn.SetReadDeadline(deadline)
+			_, err := conn.Read(make([]byte, 1))
+			assert.Error(t, err)
+		})
 	}
 }
