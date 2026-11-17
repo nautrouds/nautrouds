@@ -3,7 +3,6 @@ package forwarder
 import (
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,142 +10,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProbeHTTP2_Supported(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-h2probe-supported-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "supported.sock")
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
-	server.Protocols = new(http.Protocols)
-	server.Protocols.SetHTTP1(true)
-	server.Protocols.SetUnencryptedHTTP2(true)
-	go server.Serve(l)
-
-	useHTTP2, reason := probeHTTP2(socketPath)
-	assert.True(t, useHTTP2)
-	assert.Equal(t, reasonSupported, reason)
-}
-
-func TestProbeHTTP2_Unsupported(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-h2probe-unsupported-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "unsupported.sock")
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
-	go server.Serve(l)
-
-	useHTTP2, reason := probeHTTP2(socketPath)
-	assert.False(t, useHTTP2)
-	assert.Equal(t, reasonUnsupported, reason)
-}
-
-func TestProbeHTTP2_UnsupportedRawReset(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-h2probe-reset-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "reset.sock")
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	go func() {
-		conn, err := l.Accept()
-		if err != nil {
-			return
+func serveHTTP(h2 bool) func(l net.Listener) {
+	return func(l net.Listener) {
+		server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
+		if h2 {
+			server.Protocols = new(http.Protocols)
+			server.Protocols.SetHTTP1(true)
+			server.Protocols.SetUnencryptedHTTP2(true)
 		}
-		conn.Close()
-	}()
-
-	useHTTP2, reason := probeHTTP2(socketPath)
-	assert.False(t, useHTTP2)
-	assert.Equal(t, reasonUnsupported, reason)
-}
-
-func TestProbeHTTP2_Declined(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-h2probe-declined-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "declined.sock")
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	go func() {
-		conn, err := l.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		buf := make([]byte, 64)
-		conn.Read(buf) // drain the preface + SETTINGS the probe sent
-
-		// GOAWAY: length=8, type=0x7, stream 0, last-stream-id=0, error=0x0d (HTTP_1_1_REQUIRED).
-		goAway := []byte{
-			0x00, 0x00, 0x08,
-			0x07,
-			0x00,
-			0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x0d,
-		}
-		conn.Write(goAway)
-	}()
-
-	useHTTP2, reason := probeHTTP2(socketPath)
-	assert.False(t, useHTTP2)
-	assert.Equal(t, reasonDeclined, reason)
-}
-
-func TestProbeHTTP2_Timeout(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-h2probe-timeout-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "timeout.sock")
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	connCh := make(chan net.Conn, 1)
-	go func() {
-		conn, err := l.Accept()
-		if err == nil {
-			connCh <- conn
-		}
-	}()
-
-	useHTTP2, reason := probeHTTP2(socketPath)
-	assert.False(t, useHTTP2)
-	assert.Equal(t, reasonTimeout, reason)
-
-	select {
-	case conn := <-connCh:
-		conn.Close()
-	default:
+		server.Serve(l)
 	}
 }
 
-func TestProbeHTTP2_DialFailed(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-h2probe-dialfail-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+func TestProbeHTTP2(t *testing.T) {
+	goAwayHTTP11Required := []byte{
+		0x00, 0x00, 0x08,
+		0x07,
+		0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x0d,
+	}
 
-	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
+	tests := []struct {
+		name       string
+		serve      func(l net.Listener)
+		wantH2     bool
+		wantReason string
+	}{
+		{"Supported", serveHTTP(true), true, reasonSupported},
+		{"Unsupported", serveHTTP(false), false, reasonUnsupported},
+		{"UnsupportedRawReset", func(l net.Listener) {
+			if conn, err := l.Accept(); err == nil {
+				conn.Close()
+			}
+		}, false, reasonUnsupported},
+		{"Declined", func(l net.Listener) {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			conn.Read(make([]byte, 64))
+			conn.Write(goAwayHTTP11Required)
+		}, false, reasonDeclined},
+		{"Timeout", func(l net.Listener) {
+			if conn, err := l.Accept(); err == nil {
+				defer conn.Close()
+				conn.Read(make([]byte, 1024))
+				conn.Read(make([]byte, 1024))
+			}
+		}, false, reasonTimeout},
+		{"DialFailed", nil, false, reasonDialFailed},
+	}
 
-	useHTTP2, reason := probeHTTP2(socketPath)
-	assert.False(t, useHTTP2)
-	assert.Equal(t, reasonDialFailed, reason)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			socketPath := filepath.Join(t.TempDir(), "probe.sock")
+			if tt.serve != nil {
+				l, err := net.Listen("unix", socketPath)
+				require.NoError(t, err)
+				defer l.Close()
+				go tt.serve(l)
+			}
+
+			useHTTP2, reason := probeHTTP2(socketPath)
+			assert.Equal(t, tt.wantH2, useHTTP2)
+			assert.Equal(t, tt.wantReason, reason)
+		})
+	}
 }

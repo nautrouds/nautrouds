@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// blockingNode holds n concurrent requests in flight against fwd until unblock() is called.
 type blockingNode struct {
 	fwd     *forwarder.Forwarder
 	path    string
@@ -30,10 +29,7 @@ type blockingNode struct {
 func newBlockingNode(t *testing.T, n int) *blockingNode {
 	t.Helper()
 
-	tmpDir, err := os.MkdirTemp("", "nautrouds-loadbalance-*")
-	require.NoError(t, err)
-
-	socketPath := filepath.Join(tmpDir, "node.sock")
+	socketPath := filepath.Join(t.TempDir(), "node.sock")
 	l, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)
 
@@ -60,7 +56,6 @@ func newBlockingNode(t *testing.T, n int) *blockingNode {
 		cleanup: func() {
 			server.Shutdown(context.Background())
 			l.Close()
-			os.RemoveAll(tmpDir)
 		},
 	}
 
@@ -90,7 +85,8 @@ func (n *blockingNode) unblock() {
 }
 
 func TestSortByLoad_RealForwarders(t *testing.T) {
-	idle := makeForwarder(filepath.Join(t.TempDir(), "idle.sock"))
+	idlePath := filepath.Join(t.TempDir(), "idle.sock")
+	idle := makeForwarder(idlePath)
 
 	loaded1 := newBlockingNode(t, 1)
 	defer loaded1.unblock()
@@ -160,13 +156,10 @@ func TestGetForwarders_P2CStrategy(t *testing.T) {
 	}
 }
 
-// markerPath returns the path of the "<token>.strategy" marker file under tmpDir/svc.
 func markerPath(tmpDir, token string) string {
 	return filepath.Join(tmpDir, "svc", token+strategyFileSuffix)
 }
 
-// setUpSvc creates tmpDir/svc, an empty "<token>.strategy" marker for each token
-// given, and an alive node socket, returning the pieces callers need to drive scans.
 func setUpSvc(t *testing.T, tokens ...string) (tmpDir, socketPath string, node *blockingNode) {
 	t.Helper()
 	tmpDir = t.TempDir()
@@ -174,7 +167,8 @@ func setUpSvc(t *testing.T, tokens ...string) (tmpDir, socketPath string, node *
 	require.NoError(t, os.MkdirAll(svcDir, 0755))
 
 	for _, token := range tokens {
-		require.NoError(t, os.WriteFile(markerPath(tmpDir, token), nil, 0644))
+		marker := markerPath(tmpDir, token)
+		require.NoError(t, os.WriteFile(marker, nil, 0644))
 	}
 
 	// Needs a live listener: a dangling socket path triggers async ECONNREFUSED
@@ -185,72 +179,73 @@ func setUpSvc(t *testing.T, tokens ...string) (tmpDir, socketPath string, node *
 }
 
 func TestReadStrategy(t *testing.T) {
-	t.Run("NoMarker", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "svc"), 0755))
-		assert.Equal(t, loadbalance.StrategyRoundRobin, readStrategyAtCreation(tmpDir, "svc"))
-	})
+	tests := []struct {
+		name   string
+		tokens []string
+		want   loadbalance.Strategy
+	}{
+		{"NoMarker", nil, loadbalance.StrategyRoundRobin},
+		{"RoundRobinMarker", []string{"round_robin"}, loadbalance.StrategyRoundRobin},
+		{"LeastInFlightMarker", []string{"least_in_flight"}, loadbalance.StrategyLeastInFlight},
+		{"P2CMarker", []string{"p2c"}, loadbalance.StrategyP2C},
+		{"BothMarkersPriority", []string{"round_robin", "least_in_flight"}, loadbalance.StrategyLeastInFlight},
+		{"P2CPriorityOverLeastInFlight", []string{"least_in_flight", "p2c"}, loadbalance.StrategyP2C},
+	}
 
-	t.Run("RoundRobinMarker", func(t *testing.T) {
-		tmpDir, _, node := setUpSvc(t, "round_robin")
-		defer node.unblock()
-		assert.Equal(t, loadbalance.StrategyRoundRobin, readStrategyAtCreation(tmpDir, "svc"))
-	})
-
-	t.Run("LeastInFlightMarker", func(t *testing.T) {
-		tmpDir, _, node := setUpSvc(t, "least_in_flight")
-		defer node.unblock()
-		assert.Equal(t, loadbalance.StrategyLeastInFlight, readStrategyAtCreation(tmpDir, "svc"))
-	})
-
-	t.Run("P2CMarker", func(t *testing.T) {
-		tmpDir, _, node := setUpSvc(t, "p2c")
-		defer node.unblock()
-		assert.Equal(t, loadbalance.StrategyP2C, readStrategyAtCreation(tmpDir, "svc"))
-	})
-
-	t.Run("BothMarkersPriority", func(t *testing.T) {
-		tmpDir, _, node := setUpSvc(t, "round_robin", "least_in_flight")
-		defer node.unblock()
-		assert.Equal(t, loadbalance.StrategyLeastInFlight, readStrategyAtCreation(tmpDir, "svc"))
-	})
-
-	t.Run("P2CPriorityOverLeastInFlight", func(t *testing.T) {
-		tmpDir, _, node := setUpSvc(t, "least_in_flight", "p2c")
-		defer node.unblock()
-		assert.Equal(t, loadbalance.StrategyP2C, readStrategyAtCreation(tmpDir, "svc"))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir, _, node := setUpSvc(t, tt.tokens...)
+			defer node.unblock()
+			assert.Equal(t, tt.want, readStrategyAtCreation(tmpDir, "svc"))
+		})
+	}
 
 	t.Run("StatErrorNotNotExist", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		// "svc" is a file, not a directory, so stat-ing a candidate under it fails with ENOTDIR, not not-exist.
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "svc"), nil, 0644))
+		svcPath := filepath.Join(tmpDir, "svc")
+		require.NoError(t, os.WriteFile(svcPath, nil, 0644))
 		assert.Equal(t, loadbalance.StrategyRoundRobin, readStrategyAtCreation(tmpDir, "svc"))
 	})
 }
 
 func TestResolveMarkerStrategy(t *testing.T) {
-	t.Run("Empty", func(t *testing.T) {
-		assert.Equal(t, loadbalance.StrategyRoundRobin, resolveMarkerStrategy(nil, "svc"))
-	})
+	tests := []struct {
+		name  string
+		paths []string
+		want  loadbalance.Strategy
+	}{
+		{
+			name: "Empty",
+			want: loadbalance.StrategyRoundRobin,
+		},
+		{
+			name:  "UnknownToken",
+			paths: []string{"/svc/bogus.strategy"},
+			want:  loadbalance.StrategyRoundRobin,
+		},
+		{
+			name:  "PriorityWhenBothPresent",
+			paths: []string{"/svc/round_robin.strategy", "/svc/least_in_flight.strategy"},
+			want:  loadbalance.StrategyLeastInFlight,
+		},
+		{
+			name:  "P2CToken",
+			paths: []string{"/svc/p2c.strategy"},
+			want:  loadbalance.StrategyP2C,
+		},
+		{
+			name:  "P2CPriorityOverLeastInFlight",
+			paths: []string{"/svc/least_in_flight.strategy", "/svc/p2c.strategy"},
+			want:  loadbalance.StrategyP2C,
+		},
+	}
 
-	t.Run("UnknownToken", func(t *testing.T) {
-		assert.Equal(t, loadbalance.StrategyRoundRobin, resolveMarkerStrategy([]string{"/svc/bogus.strategy"}, "svc"))
-	})
-
-	t.Run("PriorityWhenBothPresent", func(t *testing.T) {
-		paths := []string{"/svc/round_robin.strategy", "/svc/least_in_flight.strategy"}
-		assert.Equal(t, loadbalance.StrategyLeastInFlight, resolveMarkerStrategy(paths, "svc"))
-	})
-
-	t.Run("P2CToken", func(t *testing.T) {
-		assert.Equal(t, loadbalance.StrategyP2C, resolveMarkerStrategy([]string{"/svc/p2c.strategy"}, "svc"))
-	})
-
-	t.Run("P2CPriorityOverLeastInFlight", func(t *testing.T) {
-		paths := []string{"/svc/least_in_flight.strategy", "/svc/p2c.strategy"}
-		assert.Equal(t, loadbalance.StrategyP2C, resolveMarkerStrategy(paths, "svc"))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, resolveMarkerStrategy(tt.paths, "svc"))
+		})
+	}
 }
 
 func TestApplyServiceScan_ReadsStrategyOnlyAtCreation(t *testing.T) {
@@ -267,8 +262,10 @@ func TestApplyServiceScan_ReadsStrategyOnlyAtCreation(t *testing.T) {
 
 	// The .sock handler only reads markers when creating a ServiceSet; a rescan of
 	// an already-existing service must not re-check them, even though they changed.
-	require.NoError(t, os.Remove(markerPath(tmpDir, "least_in_flight")))
-	require.NoError(t, os.WriteFile(markerPath(tmpDir, "round_robin"), nil, 0644))
+	oldMarker := markerPath(tmpDir, "least_in_flight")
+	newMarker := markerPath(tmpDir, "round_robin")
+	require.NoError(t, os.Remove(oldMarker))
+	require.NoError(t, os.WriteFile(newMarker, nil, 0644))
 	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
 
 	reg.mu.RLock()
@@ -303,44 +300,40 @@ func TestStrategyHandler_AppliesUnconditionally(t *testing.T) {
 	reg.mu.RUnlock()
 }
 
-func TestStrategyHandler_FileRemovedResetsToDefault(t *testing.T) {
-	tmpDir, socketPath, node := setUpSvc(t, "least_in_flight")
-	defer node.unblock()
+func TestStrategyHandler_MarkerGoneResetsToDefault(t *testing.T) {
+	tests := []struct {
+		name  string
+		reset func(sh *StrategyHandler, baseDir string) error
+	}{
+		{"ServiceScanWithoutMarker", func(sh *StrategyHandler, baseDir string) error {
+			return sh.ApplyServiceScan(baseDir, "svc", nil)
+		}},
+		{"FullScanMissingService", func(sh *StrategyHandler, baseDir string) error {
+			return sh.ApplyFullScan(baseDir, map[string]map[string]struct{}{})
+		}},
+	}
 
-	reg, err := NewRegistry()
-	require.NoError(t, err)
-	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir, socketPath, node := setUpSvc(t, "least_in_flight")
+			defer node.unblock()
 
-	sh := NewStrategyHandler(reg)
-	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", []string{markerPath(tmpDir, "least_in_flight")}))
-	reg.mu.RLock()
-	assert.Equal(t, loadbalance.StrategyLeastInFlight, reg.services["svc"].strategy)
-	reg.mu.RUnlock()
+			reg, err := NewRegistry()
+			require.NoError(t, err)
+			require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
 
-	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", nil))
-	reg.mu.RLock()
-	assert.Equal(t, loadbalance.StrategyRoundRobin, reg.services["svc"].strategy)
-	reg.mu.RUnlock()
-}
+			sh := NewStrategyHandler(reg)
+			require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", []string{markerPath(tmpDir, "least_in_flight")}))
+			reg.mu.RLock()
+			assert.Equal(t, loadbalance.StrategyLeastInFlight, reg.services["svc"].strategy)
+			reg.mu.RUnlock()
 
-func TestStrategyHandler_ApplyFullScan_ResetsServiceMissingFromByService(t *testing.T) {
-	tmpDir, socketPath, node := setUpSvc(t, "least_in_flight")
-	defer node.unblock()
-
-	reg, err := NewRegistry()
-	require.NoError(t, err)
-	require.NoError(t, reg.ApplyServiceScan(tmpDir, "svc", []string{socketPath}))
-
-	sh := NewStrategyHandler(reg)
-	require.NoError(t, sh.ApplyServiceScan(tmpDir, "svc", []string{markerPath(tmpDir, "least_in_flight")}))
-	reg.mu.RLock()
-	assert.Equal(t, loadbalance.StrategyLeastInFlight, reg.services["svc"].strategy)
-	reg.mu.RUnlock()
-
-	require.NoError(t, sh.ApplyFullScan(tmpDir, map[string]map[string]struct{}{}))
-	reg.mu.RLock()
-	assert.Equal(t, loadbalance.StrategyRoundRobin, reg.services["svc"].strategy)
-	reg.mu.RUnlock()
+			require.NoError(t, tt.reset(sh, tmpDir))
+			reg.mu.RLock()
+			assert.Equal(t, loadbalance.StrategyRoundRobin, reg.services["svc"].strategy)
+			reg.mu.RUnlock()
+		})
+	}
 }
 
 func TestStrategyHandler_ApplyFullScan_AppliesMarkerForExistingService(t *testing.T) {
@@ -366,31 +359,4 @@ func TestStrategyHandler_ApplyFullScan_AppliesMarkerForExistingService(t *testin
 	reg.mu.RLock()
 	assert.Equal(t, loadbalance.StrategyLeastInFlight, reg.services["svc"].strategy)
 	reg.mu.RUnlock()
-}
-
-func TestGetForwarders_RoundRobinStrategyUnchanged(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	reg, err := NewRegistry()
-	require.NoError(t, err)
-
-	s1 := filepath.Join(tmpDir, "node1.sock")
-	s2 := filepath.Join(tmpDir, "node2.sock")
-	f1 := makeForwarder(s1)
-	f2 := makeForwarder(s2)
-
-	reg.mu.Lock()
-	reg.nodeMap[s1] = &nodeContext{serviceName: "svc", forwarder: f1}
-	reg.nodeMap[s2] = &nodeContext{serviceName: "svc", forwarder: f2}
-	reg.services["svc"] = newTestServiceSet([]string{s1, s2}, loadbalance.StrategyRoundRobin, reg.nodeMap)
-	reg.mu.Unlock()
-
-	first := reg.GetForwarders("svc")
-	second := reg.GetForwarders("svc")
-	require.Len(t, first, 2)
-	require.Len(t, second, 2)
-	assert.NotSame(t, first[0], second[0])
-
-	third := reg.GetForwarders("svc")
-	assert.Same(t, first[0], third[0])
 }

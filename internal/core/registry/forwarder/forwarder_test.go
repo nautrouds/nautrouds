@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,453 +21,237 @@ import (
 
 const chunkedContentLength = -1
 
-func TestForwarder_Forward(t *testing.T) {
-	// 1. Setup a mock UDS Server
-	tmpDir, err := os.MkdirTemp("", "nautrouds-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "test.sock")
+func serveUnix(t *testing.T, handler http.HandlerFunc) string {
+	t.Helper()
+	socketPath := filepath.Join(t.TempDir(), "test.sock")
 
 	l, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)
-	defer l.Close()
-
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Hello from UDS"))
-		}),
-	}
+	server := &http.Server{Handler: handler}
 	go server.Serve(l)
-	defer server.Shutdown(context.Background())
+	t.Cleanup(func() { server.Shutdown(context.Background()) })
+	return socketPath
+}
 
-	// 2. Use Forwarder to send request to UDS
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
+func forward(f *Forwarder) error {
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	return f.Forward(httptest.NewRecorder(), req)
+}
 
-	req := httptest.NewRequest("GET", "http://example.com/api/test", nil)
+func forwardMiddleware(f *Forwarder) error {
+	w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+	defer tempresp.Pool.Put(w)
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	return f.ForwardMiddleware(w, req, nil, "/", nil)
+}
+
+var forwardCalls = []struct {
+	name string
+	call func(f *Forwarder) error
+}{
+	{"Forward", forward},
+	{"ForwardMiddleware", forwardMiddleware},
+}
+
+func TestForwarder_Forward(t *testing.T) {
+	socketPath := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Hello from UDS"))
+	})
+	f := New("test-service", socketPath, 1, make(chan FailureForwarder, 1))
+
 	w := httptest.NewRecorder()
-
+	req := httptest.NewRequest("GET", "http://example.com/api/test", nil)
 	f.Forward(w, req)
 
-	resp := w.Result()
-	body, _ := io.ReadAll(resp.Body)
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "Hello from UDS", string(body))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "Hello from UDS", w.Body.String())
 }
 
 func TestForwarder_Forward_ChunkedBodyExceedsMaxBytesReaderLimit(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-body-too-large-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "test.sock")
-
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			io.Copy(io.Discard, r.Body)
-			w.WriteHeader(http.StatusOK)
-		}),
-	}
-	go server.Serve(l)
-	defer server.Shutdown(context.Background())
-
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
+	socketPath := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	})
+	f := New("test-service", socketPath, 1, make(chan FailureForwarder, 1))
 
 	req := httptest.NewRequest("POST", "http://example.com/upload", strings.NewReader("this body is way over the ten byte limit"))
 	req.ContentLength = chunkedContentLength
 	w := httptest.NewRecorder()
 	req.Body = http.MaxBytesReader(w, req.Body, 10)
 
-	err = f.Forward(w, req)
-
-	assert.ErrorIs(t, err, ErrBodyTooLarge)
+	assert.ErrorIs(t, f.Forward(w, req), ErrBodyTooLarge)
 }
 
 func TestForwarder_ForwardMiddleware(t *testing.T) {
-	// 1. Setup a mock UDS Middleware Server
-	tmpDir, err := os.MkdirTemp("", "nautrouds-mw-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "mw.sock")
-
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("X-Auth") == "valid" {
-				w.Header().Set("X-User-ID", "123")
-				w.WriteHeader(http.StatusNoContent)
-			} else {
-				w.WriteHeader(http.StatusUnauthorized)
-			}
-		}),
-	}
-	go server.Serve(l)
-	defer server.Shutdown(context.Background())
-
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
-
-	t.Run("Authorized", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		req.Header.Set("X-Auth", "valid")
-		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-		defer tempresp.Pool.Put(w)
-
-		err := f.ForwardMiddleware(w, req, nil, "/", []string{"X-User-ID"})
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusNoContent, w.GetCode())
-		assert.Equal(t, "123", req.Header.Get("X-User-ID"))
-	})
-
-	t.Run("Unauthorized", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		req.Header.Set("X-Auth", "invalid")
-		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-		defer tempresp.Pool.Put(w)
-
-		err := f.ForwardMiddleware(w, req, nil, "/", nil)
-		assert.Equal(t, ErrMiddlewareBlocked, err)
-		assert.Equal(t, http.StatusUnauthorized, w.GetCode())
-	})
-
-	t.Run("Authorized_HeaderNotAllowlisted", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		req.Header.Set("X-Auth", "valid")
-		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-		defer tempresp.Pool.Put(w)
-
-		err := f.ForwardMiddleware(w, req, nil, "/", []string{"X-Other"})
-		assert.NoError(t, err)
-		assert.Equal(t, http.StatusNoContent, w.GetCode())
-		assert.Empty(t, req.Header.Get("X-User-ID"))
-	})
-}
-
-func TestForwarder_FailureReporting(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-fail-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
-
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
-
-	t.Run("Forward Failure", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		w := httptest.NewRecorder()
-
-		err := f.Forward(w, req)
-		assert.True(t, err == ErrNodeUnavailable || err == ErrNodeFailed, "got %v", err)
-
-		select {
-		case failure := <-onFailure:
-			assert.Equal(t, socketPath, failure.SocketPath)
-			assert.Error(t, failure.Error)
-		case <-time.After(1 * time.Second):
-			t.Fatal("timed out waiting for failure report")
-		}
-	})
-
-	f.isFailed.Store(false)
-
-	t.Run("ForwardMiddleware Failure", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-		defer tempresp.Pool.Put(w)
-
-		err := f.ForwardMiddleware(w, req, nil, "/", nil)
-		assert.Equal(t, ErrNodeUnavailable, err)
-
-		select {
-		case failure := <-onFailure:
-			assert.Equal(t, socketPath, failure.SocketPath)
-			assert.Error(t, failure.Error)
-		case <-time.After(1 * time.Second):
-			t.Fatal("timed out waiting for failure report")
-		}
-	})
-}
-
-func TestForwarder_Forward_InFlightTracksLifecycle(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "test.sock")
-
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	started := make(chan struct{})
-	release := make(chan struct{})
-	server := &http.Server{
-		// New()'s async HTTP/2 probe hits this socket too; its preface parses as method PRI, so ignore non-GET.
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			close(started)
-			<-release
-			w.WriteHeader(http.StatusOK)
-		}),
-	}
-	go server.Serve(l)
-	defer server.Shutdown(context.Background())
-
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
-
-	done := make(chan struct{})
-	go func() {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		w := httptest.NewRecorder()
-		f.Forward(w, req)
-		close(done)
-	}()
-
-	select {
-	case <-started:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timed out waiting for request to start")
-	}
-	assert.EqualValues(t, 1, f.InFlightWeight())
-
-	close(release)
-
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timed out waiting for request to finish")
-	}
-	assert.EqualValues(t, 0, f.InFlightWeight())
-}
-
-func TestForwarder_ForwardMiddleware_InFlightTracksLifecycle(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-mw-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "mw.sock")
-
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	started := make(chan struct{})
-	release := make(chan struct{})
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			close(started)
-			<-release
+	socketPath := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Auth") == "valid" {
+			w.Header().Set("X-User-ID", "123")
 			w.WriteHeader(http.StatusNoContent)
-		}),
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	})
+	f := New("test-service", socketPath, 1, make(chan FailureForwarder, 1))
+
+	tests := []struct {
+		name           string
+		auth           string
+		allowedHeaders []string
+		wantErr        error
+		wantCode       int
+		wantUserID     string
+	}{
+		{"Authorized", "valid", []string{"X-User-ID"}, nil, http.StatusNoContent, "123"},
+		{"Unauthorized", "invalid", nil, ErrMiddlewareBlocked, http.StatusUnauthorized, ""},
+		{"Authorized_HeaderNotAllowlisted", "valid", []string{"X-Other"}, nil, http.StatusNoContent, ""},
 	}
-	go server.Serve(l)
-	defer server.Shutdown(context.Background())
 
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "http://example.com/", nil)
+			req.Header.Set("X-Auth", tt.auth)
+			w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
+			defer tempresp.Pool.Put(w)
 
-	done := make(chan struct{})
-	go func() {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-		defer tempresp.Pool.Put(w)
-		f.ForwardMiddleware(w, req, nil, "/", nil)
-		close(done)
-	}()
-
-	select {
-	case <-started:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timed out waiting for request to start")
-	}
-	assert.EqualValues(t, 1, f.InFlightWeight())
-
-	close(release)
-
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timed out waiting for request to finish")
-	}
-	assert.EqualValues(t, 0, f.InFlightWeight())
-}
-
-func TestForwarder_Forward_InFlightDecrementsOnError(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-err-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
-
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
-
-	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	w := httptest.NewRecorder()
-
-	err = f.Forward(w, req)
-	assert.True(t, err == ErrNodeUnavailable || err == ErrNodeFailed, "got %v", err)
-	assert.EqualValues(t, 0, f.InFlightWeight())
-}
-
-func TestForwarder_ForwardMiddleware_InFlightDecrementsOnError(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-mw-err-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "nonexistent.sock")
-
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
-
-	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-	defer tempresp.Pool.Put(w)
-
-	err = f.ForwardMiddleware(w, req, nil, "/", nil)
-	assert.True(t, err == ErrNodeUnavailable || err == ErrNodeFailed, "got %v", err)
-	assert.EqualValues(t, 0, f.InFlightWeight())
-}
-
-func TestForwarder_Forward_ReturnsErrNodeFailedWhenAlreadyFailed(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-node-failed-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "test.sock")
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
-	f.isFailed.Store(true)
-
-	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	w := httptest.NewRecorder()
-
-	err = f.Forward(w, req)
-	assert.Equal(t, ErrNodeFailed, err)
-}
-
-func TestForwarder_ForwardMiddleware_ReturnsErrNodeFailedWhenAlreadyFailed(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-mw-node-failed-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "mw.sock")
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
-	f.isFailed.Store(true)
-
-	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	w := tempresp.Pool.Get().(*tempresp.ResponseWriter)
-	defer tempresp.Pool.Put(w)
-
-	err = f.ForwardMiddleware(w, req, nil, "/", nil)
-	assert.Equal(t, ErrNodeFailed, err)
-}
-
-func TestCreateReverseProxy_ErrorHandler_DialOpErrorIsNodeUnavailable(t *testing.T) {
-	onFailure := make(chan FailureForwarder, 1)
-	var isFailed atomic.Bool
-	rp := createReverseProxy("test-service", "/tmp/test.sock", http.DefaultTransport, onFailure, &isFailed)
-
-	var capturedErr error
-	ctx := context.WithValue(context.Background(), proxyErrorKey{}, &capturedErr)
-	req := httptest.NewRequest("GET", "http://example.com/", nil).WithContext(ctx)
-
-	rp.ErrorHandler(httptest.NewRecorder(), req, &net.OpError{Op: "dial", Net: "unix", Err: errors.New("no such file or directory")})
-
-	assert.ErrorIs(t, capturedErr, ErrNodeUnavailable)
-	assert.True(t, isFailed.Load())
-
-	select {
-	case failure := <-onFailure:
-		assert.Equal(t, "/tmp/test.sock", failure.SocketPath)
-	default:
-		t.Fatal("expected a failure to be reported")
+			err := f.ForwardMiddleware(w, req, nil, "/", tt.allowedHeaders)
+			assert.Equal(t, tt.wantErr, err)
+			assert.Equal(t, tt.wantCode, w.GetCode())
+			assert.Equal(t, tt.wantUserID, req.Header.Get("X-User-ID"))
+		})
 	}
 }
 
-func TestCreateReverseProxy_ErrorHandler_NonDialOpErrorIsUpstreamFailed(t *testing.T) {
-	onFailure := make(chan FailureForwarder, 1)
-	var isFailed atomic.Bool
-	rp := createReverseProxy("test-service", "/tmp/test.sock", http.DefaultTransport, onFailure, &isFailed)
+func TestForwarder_UnreachableNode(t *testing.T) {
+	for _, tt := range forwardCalls {
+		t.Run(tt.name, func(t *testing.T) {
+			socketPath := filepath.Join(t.TempDir(), "nonexistent.sock")
+			onFailure := make(chan FailureForwarder, 1)
+			f := New("test-service", socketPath, 1, onFailure)
 
-	var capturedErr error
-	ctx := context.WithValue(context.Background(), proxyErrorKey{}, &capturedErr)
-	req := httptest.NewRequest("GET", "http://example.com/", nil).WithContext(ctx)
+			err := tt.call(f)
+			assert.True(t, err == ErrNodeUnavailable || err == ErrNodeFailed, "got %v", err)
+			assert.EqualValues(t, 0, f.InFlightWeight())
 
-	rp.ErrorHandler(httptest.NewRecorder(), req, &net.OpError{Op: "write", Net: "unix", Err: errors.New("broken pipe")})
+			select {
+			case failure := <-onFailure:
+				assert.Equal(t, socketPath, failure.SocketPath)
+				assert.Error(t, failure.Error)
+			case <-time.After(1 * time.Second):
+				t.Fatal("timed out waiting for failure report")
+			}
+		})
+	}
+}
 
-	assert.ErrorIs(t, capturedErr, ErrUpstreamFailed)
-	assert.True(t, isFailed.Load())
+func TestForwarder_ReturnsErrNodeFailedWhenAlreadyFailed(t *testing.T) {
+	for _, tt := range forwardCalls {
+		t.Run(tt.name, func(t *testing.T) {
+			socketPath := filepath.Join(t.TempDir(), "test.sock")
+			f := New("test-service", socketPath, 1, make(chan FailureForwarder, 1))
+			f.isFailed.Store(true)
 
-	select {
-	case failure := <-onFailure:
-		assert.Equal(t, "/tmp/test.sock", failure.SocketPath)
-	default:
-		t.Fatal("expected a failure to be reported")
+			assert.Equal(t, ErrNodeFailed, tt.call(f))
+		})
+	}
+}
+
+func TestForwarder_InFlightTracksLifecycle(t *testing.T) {
+	for _, tt := range forwardCalls {
+		t.Run(tt.name, func(t *testing.T) {
+			started := make(chan struct{})
+			release := make(chan struct{})
+			// New()'s async HTTP/2 probe hits this socket too; its preface parses as method PRI, so ignore non-GET.
+			socketPath := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				close(started)
+				<-release
+				w.WriteHeader(http.StatusNoContent)
+			})
+			f := New("test-service", socketPath, 1, make(chan FailureForwarder, 1))
+
+			done := make(chan struct{})
+			go func() {
+				tt.call(f)
+				close(done)
+			}()
+
+			select {
+			case <-started:
+			case <-time.After(1 * time.Second):
+				t.Fatal("timed out waiting for request to start")
+			}
+			assert.EqualValues(t, 1, f.InFlightWeight())
+
+			close(release)
+
+			select {
+			case <-done:
+			case <-time.After(1 * time.Second):
+				t.Fatal("timed out waiting for request to finish")
+			}
+			assert.EqualValues(t, 0, f.InFlightWeight())
+		})
+	}
+}
+
+func TestCreateReverseProxy_ErrorHandler(t *testing.T) {
+	tests := []struct {
+		name    string
+		op      string
+		wantErr error
+	}{
+		{"DialOpErrorIsNodeUnavailable", "dial", ErrNodeUnavailable},
+		{"NonDialOpErrorIsUpstreamFailed", "write", ErrUpstreamFailed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			onFailure := make(chan FailureForwarder, 1)
+			var isFailed atomic.Bool
+			rp := createReverseProxy("test-service", "/tmp/test.sock", http.DefaultTransport, onFailure, &isFailed)
+
+			var capturedErr error
+			ctx := context.WithValue(context.Background(), proxyErrorKey{}, &capturedErr)
+			req := httptest.NewRequest("GET", "http://example.com/", nil).WithContext(ctx)
+
+			rp.ErrorHandler(httptest.NewRecorder(), req, &net.OpError{Op: tt.op, Net: "unix", Err: errors.New("boom")})
+
+			assert.ErrorIs(t, capturedErr, tt.wantErr)
+			assert.True(t, isFailed.Load())
+
+			select {
+			case failure := <-onFailure:
+				assert.Equal(t, "/tmp/test.sock", failure.SocketPath)
+			default:
+				t.Fatal("expected a failure to be reported")
+			}
+		})
 	}
 }
 
 func TestForwarder_Forward_ConcurrentInFlightCount(t *testing.T) {
 	const n = 5
 
-	tmpDir, err := os.MkdirTemp("", "nautrouds-inflight-concurrent-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "test.sock")
-
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
 	started := make(chan struct{}, n)
 	release := make(chan struct{})
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			started <- struct{}{}
-			<-release
+	socketPath := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusOK)
-		}),
-	}
-	go server.Serve(l)
-	defer server.Shutdown(context.Background())
-
-	onFailure := make(chan FailureForwarder, n)
-	f := New("test-service", socketPath, 1, onFailure)
+			return
+		}
+		started <- struct{}{}
+		<-release
+		w.WriteHeader(http.StatusOK)
+	})
+	f := New("test-service", socketPath, 1, make(chan FailureForwarder, n))
 
 	var wg sync.WaitGroup
 	for range n {
-		wg.Go(func() {
-			req := httptest.NewRequest("GET", "http://example.com/", nil)
-			w := httptest.NewRecorder()
-			f.Forward(w, req)
-		})
+		wg.Go(func() { forward(f) })
 	}
 
 	for range n {

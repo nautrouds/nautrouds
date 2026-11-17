@@ -26,9 +26,7 @@ func createOrphanSocket(t *testing.T, path string) {
 }
 
 func TestOrphanSocket_ECONNREFUSED_NodeRemovedAndFileDeleted(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-orphan-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	serviceDir := filepath.Join(tmpDir, "svc")
 	require.NoError(t, os.MkdirAll(serviceDir, 0755))
@@ -36,8 +34,7 @@ func TestOrphanSocket_ECONNREFUSED_NodeRemovedAndFileDeleted(t *testing.T) {
 
 	createOrphanSocket(t, socketPath)
 
-	_, err = os.Stat(socketPath)
-	require.NoError(t, err, "socket file must exist before scan")
+	require.FileExists(t, socketPath)
 
 	reg, err := NewRegistry()
 	require.NoError(t, err)
@@ -61,9 +58,7 @@ func TestOrphanSocket_ECONNREFUSED_NodeRemovedAndFileDeleted(t *testing.T) {
 }
 
 func TestOrphanSocket_NonECONNREFUSED_NodeMovedToUnhealthy(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-noent-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	socketPath := filepath.Join(tmpDir, "svc", "node.sock")
 

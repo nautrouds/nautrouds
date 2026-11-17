@@ -1,9 +1,13 @@
 package loadbalance
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestParseNodeWeight(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
 		path       string
 		wantWeight int32
 		wantOK     bool
@@ -20,10 +24,11 @@ func TestParseNodeWeight(t *testing.T) {
 		{"node-0@1.sock", 1, true},
 	}
 
-	for _, c := range cases {
-		gotWeight, gotOK := ParseNodeWeight(c.path)
-		if gotWeight != c.wantWeight || gotOK != c.wantOK {
-			t.Errorf("ParseNodeWeight(%q) = (%d, %v), want (%d, %v)", c.path, gotWeight, gotOK, c.wantWeight, c.wantOK)
-		}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			gotWeight, gotOK := ParseNodeWeight(tt.path)
+			assert.Equal(t, tt.wantWeight, gotWeight)
+			assert.Equal(t, tt.wantOK, gotOK)
+		})
 	}
 }

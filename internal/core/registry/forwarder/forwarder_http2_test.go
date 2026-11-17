@@ -2,7 +2,6 @@ package forwarder
 
 import (
 	"context"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,11 +15,7 @@ import (
 )
 
 func TestForwarder_UsesHTTP2WhenBackendSupportsIt(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-fwd-h2-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "h2.sock")
+	socketPath := filepath.Join(t.TempDir(), "h2.sock")
 	l, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)
 	defer l.Close()
@@ -49,36 +44,17 @@ func TestForwarder_UsesHTTP2WhenBackendSupportsIt(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	w := httptest.NewRecorder()
-	err = f.Forward(w, req)
-	require.NoError(t, err)
-
-	resp := w.Result()
-	body, _ := io.ReadAll(resp.Body)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "h2 ok", string(body))
+	require.NoError(t, f.Forward(w, req))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "h2 ok", w.Body.String())
 }
 
 func TestForwarder_FallsBackToHTTP1WhenBackendDoesNotSupportH2(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-fwd-h1-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "h1.sock")
-	l, err := net.Listen("unix", socketPath)
-	require.NoError(t, err)
-	defer l.Close()
-
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("h1 ok"))
-		}),
-	}
-	go server.Serve(l)
-	defer server.Shutdown(context.Background())
-
-	onFailure := make(chan FailureForwarder, 1)
-	f := New("test-service", socketPath, 1, onFailure)
+	socketPath := serveUnix(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("h1 ok"))
+	})
+	f := New("test-service", socketPath, 1, make(chan FailureForwarder, 1))
 
 	// let the background probe settle before checking it resolved to false
 	time.Sleep(300 * time.Millisecond)
@@ -86,21 +62,13 @@ func TestForwarder_FallsBackToHTTP1WhenBackendDoesNotSupportH2(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	w := httptest.NewRecorder()
-	err = f.Forward(w, req)
-	require.NoError(t, err)
-
-	resp := w.Result()
-	body, _ := io.ReadAll(resp.Body)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "h1 ok", string(body))
+	require.NoError(t, f.Forward(w, req))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "h1 ok", w.Body.String())
 }
 
 func TestForwarder_TryReconnectReprobesHTTP2(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-fwd-reprobe-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "reprobe.sock")
+	socketPath := filepath.Join(t.TempDir(), "reprobe.sock")
 
 	l1, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)

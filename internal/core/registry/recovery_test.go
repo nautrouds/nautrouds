@@ -27,13 +27,7 @@ func newTestServiceSet(nodes []string, strategy loadbalance.Strategy, nodeMap ma
 	return ss
 }
 
-// --- GetNodes ---
-
 func TestGetNodes_NilForMissingService(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-getnode-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
 	reg, err := NewRegistry()
 	require.NoError(t, err)
 
@@ -41,10 +35,6 @@ func TestGetNodes_NilForMissingService(t *testing.T) {
 }
 
 func TestGetNodes_ReturnsCopy(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-getnode-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
 	reg, err := NewRegistry()
 	require.NoError(t, err)
 
@@ -55,18 +45,11 @@ func TestGetNodes_ReturnsCopy(t *testing.T) {
 	got := reg.GetNodes("svc")
 	require.Equal(t, []string{"/fake/node.sock"}, got)
 
-	// Mutating the returned slice must not affect internal state.
 	got[0] = "/changed"
 	assert.Equal(t, "/fake/node.sock", reg.GetNodes("svc")[0])
 }
 
-// --- GetState ---
-
 func TestGetState_ReturnsSnapshot(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-getstate-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
 	reg, err := NewRegistry()
 	require.NoError(t, err)
 
@@ -82,23 +65,13 @@ func TestGetState_ReturnsSnapshot(t *testing.T) {
 }
 
 func TestGetState_EmptyWhenNoServices(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-getstate-empty-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
 	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	assert.Empty(t, reg.GetState())
 }
 
-// --- GetForwarders ---
-
 func TestGetForwarders_NilForMissingService(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-getfwd-miss-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
 	reg, err := NewRegistry()
 	require.NoError(t, err)
 
@@ -106,9 +79,7 @@ func TestGetForwarders_NilForMissingService(t *testing.T) {
 }
 
 func TestGetForwarders_RoundRobin(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-getfwd-rr-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	reg, err := NewRegistry()
 	require.NoError(t, err)
@@ -128,22 +99,14 @@ func TestGetForwarders_RoundRobin(t *testing.T) {
 	got1 := reg.GetForwarders("svc")[0]
 	got2 := reg.GetForwarders("svc")[0]
 
-	// With 2 nodes, consecutive calls must return different forwarders.
 	assert.NotSame(t, got1, got2)
 
-	// Third call wraps back to the first forwarder.
 	got3 := reg.GetForwarders("svc")[0]
 	assert.Same(t, got1, got3)
 }
 
-// --- RetryUnhealthy ---
-
 func TestRetryUnhealthy_SocketUp_NodePromoted(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-retry-up-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "node.sock")
+	socketPath := filepath.Join(t.TempDir(), "node.sock")
 	ln, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)
 	defer ln.Close()
@@ -170,11 +133,7 @@ func TestRetryUnhealthy_SocketUp_NodePromoted(t *testing.T) {
 }
 
 func TestRetryUnhealthy_SocketDown_NodeStaysUnhealthy(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-retry-down-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	socketPath := filepath.Join(tmpDir, "nonexistent.sock") // no listener
+	socketPath := filepath.Join(t.TempDir(), "nonexistent.sock")
 
 	reg, err := NewRegistry()
 	require.NoError(t, err)
@@ -198,21 +157,17 @@ func TestRetryUnhealthy_SocketDown_NodeStaysUnhealthy(t *testing.T) {
 }
 
 func TestRetryUnhealthy_NodeMissingFromNodeMap_Cleaned(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-retry-missing-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	reg, err := NewRegistry()
 	require.NoError(t, err)
 
 	socketPath := filepath.Join(tmpDir, "gone.sock")
 
-	// Node is in unhealthy but NOT in nodeMap (already cleaned up elsewhere).
 	reg.mu.Lock()
 	reg.unhealthy["svc"] = &ServiceSet{nodes: []string{socketPath}}
 	reg.mu.Unlock()
 
-	// Should not panic and should clean up the stale unhealthy entry.
 	assert.NotPanics(t, func() { reg.RetryUnhealthy() })
 
 	reg.mu.RLock()
