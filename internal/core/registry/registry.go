@@ -264,6 +264,9 @@ func (*Registry) Extension() string {
 }
 
 func (r *Registry) ApplyFullScan(baseDir string, byService map[string]map[string]struct{}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	for path, ctx := range r.nodeMap {
 		if _, ok := byService[ctx.serviceName][path]; !ok {
 			r.removeNodeUnsafe(path, false)
