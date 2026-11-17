@@ -22,13 +22,13 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     volumes:
-      - nautrouds-sockets:/var/run/nautrouds
+      - nautrouds-sockets:/run/nautrouds
       - ./nautrouds/Ntufile:/etc/nautrouds/Ntufile
     environment:
       - NAUTROUDS_CONFIG=/etc/nautrouds/Ntufile
       - NAUTROUDS_MAX_IDLE_CONNS_PER_NODE=1024
     healthcheck:
-      test: ["CMD", "test", "-S", "/var/run/nautrouds/entrypoints/nautrouds-0.sock"]
+      test: ["CMD", "test", "-S", "/run/nautrouds/entrypoints/nautrouds-0.sock"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -40,11 +40,11 @@ services:
 
   backend-nautrouds:
     <<: *backend
-    command: ["-socket", "/var/run/nautrouds/services/backend-service/node-0.sock"]
+    command: ["-socket", "/run/nautrouds/services/backend-service/node-0.sock"]
     volumes:
-      - nautrouds-sockets:/var/run/nautrouds
+      - nautrouds-sockets:/run/nautrouds
     healthcheck:
-      test: ["CMD", "test", "-S", "/var/run/nautrouds/services/backend-service/node-0.sock"]
+      test: ["CMD", "test", "-S", "/run/nautrouds/services/backend-service/node-0.sock"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -58,18 +58,18 @@ services:
     <<: *proxy-limits
     image: caddy:2-alpine
     volumes:
-      - bench-sockets:/var/run/bench
-      - nautrouds-sockets:/var/run/nautrouds
+      - bench-sockets:/run/bench
+      - nautrouds-sockets:/run/nautrouds
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./tls:/etc/caddy/tls:ro
     entrypoint: ["sh", "-c"]
     command:
-      - "mkdir -p /var/run/bench/caddy && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"
+      - "mkdir -p /run/bench/caddy && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"
     expose:
       - "8443"
       - "8444"
     healthcheck:
-      test: ["CMD", "test", "-S", "/var/run/bench/caddy/entry.sock"]
+      test: ["CMD", "test", "-S", "/run/bench/caddy/entry.sock"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -80,11 +80,11 @@ services:
 
   backend-caddy:
     <<: *backend
-    command: ["-socket", "/var/run/bench/backends/caddy/backend-service/node-0.sock"]
+    command: ["-socket", "/run/bench/backends/caddy/backend-service/node-0.sock"]
     volumes:
-      - bench-sockets:/var/run/bench
+      - bench-sockets:/run/bench
     healthcheck:
-      test: ["CMD", "test", "-S", "/var/run/bench/backends/caddy/backend-service/node-0.sock"]
+      test: ["CMD", "test", "-S", "/run/bench/backends/caddy/backend-service/node-0.sock"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -95,18 +95,18 @@ services:
     <<: *proxy-limits
     image: nginx:1.27-alpine
     volumes:
-      - bench-sockets:/var/run/bench
-      - nautrouds-sockets:/var/run/nautrouds
+      - bench-sockets:/run/bench
+      - nautrouds-sockets:/run/nautrouds
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./tls:/etc/nginx/tls:ro
     entrypoint: ["sh", "-c"]
     command:
-      - "mkdir -p /var/run/bench/nginx && rm -f /var/run/bench/nginx/entry.sock && exec nginx -g 'daemon off; worker_processes ${PROXY_CPU_COUNT:-1};'"
+      - "mkdir -p /run/bench/nginx && rm -f /run/bench/nginx/entry.sock && exec nginx -g 'daemon off; worker_processes ${PROXY_CPU_COUNT:-1};'"
     expose:
       - "8443"
       - "8444"
     healthcheck:
-      test: ["CMD", "test", "-S", "/var/run/bench/nginx/entry.sock"]
+      test: ["CMD", "test", "-S", "/run/bench/nginx/entry.sock"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -117,11 +117,11 @@ services:
 
   backend-nginx:
     <<: *backend
-    command: ["-socket", "/var/run/bench/backends/nginx/backend-service/node-0.sock"]
+    command: ["-socket", "/run/bench/backends/nginx/backend-service/node-0.sock"]
     volumes:
-      - bench-sockets:/var/run/bench
+      - bench-sockets:/run/bench
     healthcheck:
-      test: ["CMD", "test", "-S", "/var/run/bench/backends/nginx/backend-service/node-0.sock"]
+      test: ["CMD", "test", "-S", "/run/bench/backends/nginx/backend-service/node-0.sock"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -133,8 +133,8 @@ services:
       context: ./client
     init: true
     volumes:
-      - nautrouds-sockets:/var/run/nautrouds
-      - bench-sockets:/var/run/bench
+      - nautrouds-sockets:/run/nautrouds
+      - bench-sockets:/run/bench
     cpuset: "${CLIENT_CPUSET:-2}"
     ulimits:
       nofile: 65535

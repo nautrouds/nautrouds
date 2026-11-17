@@ -31,10 +31,10 @@ type Stage struct {
 }
 
 const (
-	nautroudsEntrySock = "/var/run/nautrouds/entrypoints/nautrouds-0.sock"
-	nautroudsBackend   = "/var/run/nautrouds/services/backend-service/node-0.sock"
-	caddyEntrySock     = "/var/run/bench/caddy/entry.sock"
-	nginxEntrySock     = "/var/run/bench/nginx/entry.sock"
+	nautroudsEntrySock = "/run/nautrouds/entrypoints/nautrouds-0.sock"
+	nautroudsBackend   = "/run/nautrouds/services/backend-service/node-0.sock"
+	caddyEntrySock     = "/run/bench/caddy/entry.sock"
+	nginxEntrySock     = "/run/bench/nginx/entry.sock"
 )
 
 func builtinTarget(proxy, sock string) Target {
