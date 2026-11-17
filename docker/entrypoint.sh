@@ -22,9 +22,8 @@ fi
 
 mkdir -p "$NAUTROUDS_SERVICES_DIR" "$NAUTROUDS_ENTRYPOINT_DIR"
 
-chown -R nautrouds:nautrouds /var/run/nautrouds
+chown -R nautrouds:nautrouds "$NAUTROUDS_SERVICES_DIR" "$NAUTROUDS_ENTRYPOINT_DIR"
 
-chown nautrouds:nautrouds "$NAUTROUDS_SERVICES_DIR"
 chmod "$NAUTROUDS_SERVICES_DIR_MODE" "$NAUTROUDS_SERVICES_DIR"
 chmod "$NAUTROUDS_ENTRYPOINT_DIR_MODE" "$NAUTROUDS_ENTRYPOINT_DIR"
 
