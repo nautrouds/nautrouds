@@ -5,10 +5,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEcho(t *testing.T) {
@@ -16,184 +17,15 @@ func TestEcho(t *testing.T) {
 	req.Header.Set("X-Custom", "hello")
 	w := httptest.NewRecorder()
 	h, err := Echo()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	h(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
-		t.Errorf("expected JSON content-type, got %q", ct)
-	}
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 	var data map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&data); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if data["method"] != "GET" {
-		t.Errorf("expected method GET, got %v", data["method"])
-	}
-	if data["path"] != "/test" {
-		t.Errorf("expected path /test, got %v", data["path"])
-	}
-}
-
-func TestOK_Default(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := OK()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if w.Body.String() != "OK" {
-		t.Errorf("expected body OK, got %q", w.Body.String())
-	}
-}
-
-func TestOK_CustomMsg(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := OK("healthy")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Body.String() != "healthy" {
-		t.Errorf("expected body healthy, got %q", w.Body.String())
-	}
-}
-
-func TestOK_EmptyArgFallsBackToDefault(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := OK("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Body.String() != "OK" {
-		t.Errorf("expected default OK, got %q", w.Body.String())
-	}
-}
-
-func TestERR_Default(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := ERR()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "ERR") {
-		t.Errorf("expected ERR in body, got %q", w.Body.String())
-	}
-}
-
-func TestERR_NumericCodeOnly(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := ERR("503")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), http.StatusText(503)) {
-		t.Errorf("expected status text in body, got %q", w.Body.String())
-	}
-}
-
-func TestERR_NumericCodeAndMsg(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := ERR("418", "I'm a teapot")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != 418 {
-		t.Errorf("expected 418, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "I'm a teapot") {
-		t.Errorf("expected message in body, got %q", w.Body.String())
-	}
-}
-
-func TestERR_StringMsg(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := ERR("custom error")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "custom error") {
-		t.Errorf("expected custom error in body, got %q", w.Body.String())
-	}
-}
-
-func TestRedirect_TooFewArgs(t *testing.T) {
-	if _, err := Redirect(); err == nil {
-		t.Error("expected error for 0 arguments")
-	}
-}
-
-func TestRedirect_OneArg(t *testing.T) {
-	if _, err := Redirect("301"); err == nil {
-		t.Error("expected error for 1 argument")
-	}
-}
-
-func TestRedirect_Valid(t *testing.T) {
-	req := httptest.NewRequest("GET", "/old", nil)
-	w := httptest.NewRecorder()
-	h, err := Redirect("301", "/new")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusMovedPermanently {
-		t.Errorf("expected 301, got %d", w.Code)
-	}
-	if loc := w.Header().Get("Location"); loc != "/new" {
-		t.Errorf("expected Location /new, got %q", loc)
-	}
-}
-
-func TestRedirect_InvalidCode(t *testing.T) {
-	if _, err := Redirect("abc", "/new"); err == nil {
-		t.Error("expected error for non-numeric status code")
-	}
-}
-
-func TestRedirect_CodeOutOfRange(t *testing.T) {
-	if _, err := Redirect("0", "/new"); err == nil {
-		t.Error("expected error for status code out of range")
-	}
-	if _, err := Redirect("1000", "/new"); err == nil {
-		t.Error("expected error for status code out of range")
-	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&data))
+	assert.Equal(t, "GET", data["method"])
+	assert.Equal(t, "/test", data["path"])
 }
 
 func TestDiscovery(t *testing.T) {
@@ -201,146 +33,141 @@ func TestDiscovery(t *testing.T) {
 		"svc-a": {"/tmp/a.sock"},
 		"svc-b": {"/tmp/b.sock", "/tmp/b2.sock"},
 	}
-	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
 	Discovery(state)(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
+	assert.Equal(t, http.StatusOK, w.Code)
 	var got map[string][]string
-	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(got["svc-b"]) != 2 {
-		t.Errorf("expected 2 nodes for svc-b, got %d", len(got["svc-b"]))
-	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+	assert.Equal(t, state, got)
 }
 
-func TestJSON_Default(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := JSON()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if w.Body.String() != "{}" {
-		t.Errorf("expected {}, got %q", w.Body.String())
-	}
-}
-
-func TestJSON_CustomPayload(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := JSON(`{"key":"val"}`)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
-		t.Errorf("expected JSON content-type, got %q", ct)
-	}
-	if !strings.Contains(w.Body.String(), `"key"`) {
-		t.Errorf("unexpected body: %q", w.Body.String())
-	}
-}
-
-func TestPing_NoNodes(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	Ping("my-svc", nil)(w, req)
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "unreachable") {
-		t.Errorf("expected unreachable in body, got %q", w.Body.String())
-	}
-}
-
-func TestPing_Up(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "ping-up-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	sockPath := filepath.Join(tmpDir, "test.sock")
+func TestHandlers(t *testing.T) {
+	sockPath := filepath.Join(t.TempDir(), "test.sock")
 	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
+	require.NoError(t, err)
 	defer ln.Close()
 
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	Ping("my-svc", []string{sockPath})(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	tests := []struct {
+		name            string
+		build           func() (http.HandlerFunc, error)
+		wantCode        int
+		wantBody        string
+		wantContentType string
+		wantLocation    string
+	}{
+		{
+			name:     "OK/Default",
+			build:    func() (http.HandlerFunc, error) { return OK() },
+			wantCode: http.StatusOK,
+			wantBody: "OK",
+		},
+		{
+			name:     "OK/CustomMsg",
+			build:    func() (http.HandlerFunc, error) { return OK("healthy") },
+			wantCode: http.StatusOK,
+			wantBody: "healthy",
+		},
+		{
+			name:     "OK/EmptyArgFallsBackToDefault",
+			build:    func() (http.HandlerFunc, error) { return OK("") },
+			wantCode: http.StatusOK,
+			wantBody: "OK",
+		},
+		{
+			name:     "ERR/Default",
+			build:    func() (http.HandlerFunc, error) { return ERR() },
+			wantCode: http.StatusBadRequest,
+			wantBody: "ERR",
+		},
+		{
+			name:     "ERR/NumericCodeOnly",
+			build:    func() (http.HandlerFunc, error) { return ERR("503") },
+			wantCode: http.StatusServiceUnavailable,
+			wantBody: http.StatusText(503),
+		},
+		{
+			name:     "ERR/NumericCodeAndMsg",
+			build:    func() (http.HandlerFunc, error) { return ERR("418", "I'm a teapot") },
+			wantCode: 418,
+			wantBody: "I'm a teapot",
+		},
+		{
+			name:     "ERR/StringMsg",
+			build:    func() (http.HandlerFunc, error) { return ERR("custom error") },
+			wantCode: http.StatusBadRequest,
+			wantBody: "custom error",
+		},
+		{
+			name:         "Redirect/Valid",
+			build:        func() (http.HandlerFunc, error) { return Redirect("301", "/new") },
+			wantCode:     http.StatusMovedPermanently,
+			wantLocation: "/new",
+		},
+		{
+			name:     "JSON/Default",
+			build:    func() (http.HandlerFunc, error) { return JSON() },
+			wantCode: http.StatusOK,
+			wantBody: "{}",
+		},
+		{
+			name:            "JSON/CustomPayload",
+			build:           func() (http.HandlerFunc, error) { return JSON(`{"key":"val"}`) },
+			wantCode:        http.StatusOK,
+			wantBody:        `"key"`,
+			wantContentType: "application/json",
+		},
+		{
+			name:            "Welcome",
+			build:           func() (http.HandlerFunc, error) { return Welcome() },
+			wantCode:        http.StatusOK,
+			wantBody:        "Nautrouds",
+			wantContentType: "text/html",
+		},
+		{
+			name:            "Metrics",
+			build:           func() (http.HandlerFunc, error) { return Metrics() },
+			wantCode:        http.StatusOK,
+			wantContentType: "text/plain",
+		},
+		{
+			name:     "Ping/NoNodes",
+			build:    func() (http.HandlerFunc, error) { return Ping("my-svc", nil), nil },
+			wantCode: http.StatusServiceUnavailable,
+			wantBody: "unreachable",
+		},
+		{
+			name:     "Ping/Up",
+			build:    func() (http.HandlerFunc, error) { return Ping("my-svc", []string{sockPath}), nil },
+			wantCode: http.StatusOK,
+			wantBody: `"status": "up"`,
+		},
+		{
+			name:     "Ping/Down",
+			build:    func() (http.HandlerFunc, error) { return Ping("my-svc", []string{"/nonexistent/path.sock"}), nil },
+			wantCode: http.StatusGatewayTimeout,
+			wantBody: "down",
+		},
 	}
-	if !strings.Contains(w.Body.String(), `"status": "up"`) {
-		t.Errorf("expected status up in body, got %q", w.Body.String())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, err := tt.build()
+			require.NoError(t, err)
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/", nil)
+			h(w, req)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			assert.Contains(t, w.Body.String(), tt.wantBody)
+			assert.Contains(t, w.Header().Get("Content-Type"), tt.wantContentType)
+			assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+		})
 	}
 }
 
-func TestPing_Down(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	Ping("my-svc", []string{"/nonexistent/path.sock"})(w, req)
-
-	if w.Code != http.StatusGatewayTimeout {
-		t.Errorf("expected 504, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "down") {
-		t.Errorf("expected down in body, got %q", w.Body.String())
-	}
-}
-
-func TestWelcome(t *testing.T) {
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	h, err := Welcome()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
-		t.Errorf("expected text/html content-type, got %q", ct)
-	}
-	if !strings.Contains(w.Body.String(), "Nautrouds") {
-		t.Errorf("expected body to contain Nautrouds, got %q", w.Body.String())
-	}
-}
-
-func TestMetrics(t *testing.T) {
-	req := httptest.NewRequest("GET", "/metrics", nil)
-	w := httptest.NewRecorder()
-	h, err := Metrics()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	h(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
-		t.Errorf("expected text/plain content-type, got %q", ct)
-	}
-}
-
-func TestArgCount_Errors(t *testing.T) {
+func TestBuild_Errors(t *testing.T) {
 	tests := []struct {
 		name string
 		call func() error
@@ -350,15 +177,17 @@ func TestArgCount_Errors(t *testing.T) {
 		{"ERR/TooMany", func() error { _, err := ERR("a", "b", "c"); return err }},
 		{"Welcome/TooMany", func() error { _, err := Welcome("x"); return err }},
 		{"Metrics/TooMany", func() error { _, err := Metrics("x"); return err }},
+		{"Redirect/NoArgs", func() error { _, err := Redirect(); return err }},
 		{"Redirect/TooFew", func() error { _, err := Redirect("301"); return err }},
 		{"Redirect/TooMany", func() error { _, err := Redirect("301", "/new", "extra"); return err }},
+		{"Redirect/InvalidCode", func() error { _, err := Redirect("abc", "/new"); return err }},
+		{"Redirect/CodeTooLow", func() error { _, err := Redirect("0", "/new"); return err }},
+		{"Redirect/CodeTooHigh", func() error { _, err := Redirect("1000", "/new"); return err }},
 		{"JSON/TooMany", func() error { _, err := JSON("a", "b"); return err }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.call(); err == nil {
-				t.Errorf("expected error, got nil")
-			}
+			assert.Error(t, tt.call())
 		})
 	}
 }
@@ -384,12 +213,8 @@ func TestIsValid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
 			ok, name := IsValid(tt.expr)
-			if ok != tt.wantOk {
-				t.Errorf("IsValid(%q) ok = %v, want %v", tt.expr, ok, tt.wantOk)
-			}
-			if name != tt.wantName {
-				t.Errorf("IsValid(%q) name = %q, want %q", tt.expr, name, tt.wantName)
-			}
+			assert.Equal(t, tt.wantOk, ok)
+			assert.Equal(t, tt.wantName, name)
 		})
 	}
 }
