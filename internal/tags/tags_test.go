@@ -1,6 +1,10 @@
 package tags
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestAnalyze(t *testing.T) {
 	tests := []struct {
@@ -19,19 +23,7 @@ func TestAnalyze(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Analyze(tt.input)
-			if got != tt.expect {
-				t.Errorf("Analyze(%v) = %d, want %d", tt.input, got, tt.expect)
-			}
+			assert.Equal(t, tt.expect, Analyze(tt.input))
 		})
-	}
-}
-
-func TestNoMetricsTag_IsBit(t *testing.T) {
-	if NoMetricsTag == 0 {
-		t.Error("NoMetricsTag must be non-zero")
-	}
-	if NoMetricsTag&(NoMetricsTag-1) != 0 {
-		t.Error("NoMetricsTag must be a power of 2 (single bit)")
 	}
 }

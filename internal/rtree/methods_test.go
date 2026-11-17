@@ -7,39 +7,42 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestValidateMethods_ValidTokens(t *testing.T) {
-	tests := []string{
-		"g", "get", "GET",
-		"p", "po", "post",
-		"pu", "put",
-		"d", "del", "delete",
-		"head", "connect", "options", "trace", "patch",
-		"*", "any",
-		"GET,POST",
-		" get , post ",
+func TestValidateMethods(t *testing.T) {
+	tests := []struct {
+		methods string
+		wantOK  bool
+		wantBad string
+	}{
+		{"", true, ""},
+		{"g", true, ""},
+		{"get", true, ""},
+		{"GET", true, ""},
+		{"p", true, ""},
+		{"po", true, ""},
+		{"post", true, ""},
+		{"pu", true, ""},
+		{"put", true, ""},
+		{"d", true, ""},
+		{"del", true, ""},
+		{"delete", true, ""},
+		{"head", true, ""},
+		{"connect", true, ""},
+		{"options", true, ""},
+		{"trace", true, ""},
+		{"patch", true, ""},
+		{"*", true, ""},
+		{"any", true, ""},
+		{"GET,POST", true, ""},
+		{" get , post ", true, ""},
+		{"GRT", false, "GRT"},
+		{"GET,PSOT", false, "PSOT"},
 	}
 
-	for _, methods := range tests {
-		t.Run(methods, func(t *testing.T) {
-			ok, bad := rtree.ValidateMethods(methods)
-			assert.True(t, ok)
-			assert.Empty(t, bad)
+	for _, tt := range tests {
+		t.Run(tt.methods, func(t *testing.T) {
+			ok, bad := rtree.ValidateMethods(tt.methods)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantBad, bad)
 		})
 	}
-}
-
-func TestValidateMethods_Empty(t *testing.T) {
-	ok, bad := rtree.ValidateMethods("")
-	assert.True(t, ok)
-	assert.Empty(t, bad)
-}
-
-func TestValidateMethods_BadToken(t *testing.T) {
-	ok, bad := rtree.ValidateMethods("GRT")
-	assert.False(t, ok)
-	assert.Equal(t, "GRT", bad)
-
-	ok, bad = rtree.ValidateMethods("GET,PSOT")
-	assert.False(t, ok)
-	assert.Equal(t, "PSOT", bad)
 }

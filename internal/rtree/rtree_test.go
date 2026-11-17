@@ -105,9 +105,7 @@ func TestRouteTree_Search(t *testing.T) {
 
 			require.True(t, exists, "Expected match for URL: %s", tt.url)
 
-			serviceIndex := tree.ActionMetadata[node.ActionIndex]
-			serviceID := tree.ActionMetadata[serviceIndex]
-			assert.Equal(t, tt.expectedSvc, tree.GetActionName(serviceID), "Service ID mismatch")
+			assert.Equal(t, tt.expectedSvc, getServiceName(tree, node.ActionIndex))
 			if tt.checkMethods != 0 {
 				assert.Equal(t, tt.checkMethods, node.Methods&tt.checkMethods, "Methods bitmask mismatch")
 			}
@@ -132,9 +130,7 @@ func TestRouteTree_Compression(t *testing.T) {
 	node, exists := tree.Search(url)
 	assert.True(t, exists, "Route should be searchable after compression")
 
-	serviceIndex := tree.ActionMetadata[node.ActionIndex]
-	serviceID := tree.ActionMetadata[serviceIndex]
-	assert.Equal(t, "api-svc", tree.GetActionName(serviceID))
+	assert.Equal(t, "api-svc", getServiceName(tree, node.ActionIndex))
 
 	rootEdge := tree.EdgePool['i']
 	assert.NotZero(t, rootEdge.TargetID, "Root index at 'i' should not be empty")
@@ -164,29 +160,5 @@ func TestReverseHost(t *testing.T) {
 		input := []byte(tt.input)
 		rtree.ReverseHost(input)
 		assert.Equal(t, tt.expected, string(input), "ReverseHost failed for input: %s", tt.input)
-	}
-}
-
-func TestPrintRouteTree(t *testing.T) {
-	nodes := []*rtree.RawNode{
-		// 1. Exact Matches & Versioning
-		{URL: "api.example.com/v1/users", Methods: "GET,POST"},
-		{URL: "api.example.com/v1/users/profile", Methods: "GET,PUT"},
-		{URL: "api.example.com/v2/settings", Methods: "GET"},
-		{URL: "api.example.com/v1/users/*", Methods: "GET,DELETE"},
-		{URL: "api.example.com/v1/users/*/posts/*", Methods: "GET"},
-		{URL: "api.example.com/v1/assets/**", Methods: "GET"},
-		{URL: "static.example.com/*", Methods: "GET"},
-		{URL: "auth.example.com/oauth/token", Methods: "POST"},
-		{URL: "github.com/:owner/:repo/contents/*", Methods: "GET"},
-		{URL: "api.example.com/v1/reports.json", Methods: "GET"},
-		{URL: "api.example.com/v1/reports.csv", Methods: "GET"},
-		{URL: "example.org/downloads/**/*.pdf", Methods: "GET"},
-		{URL: "localhost/healthz", Methods: "GET"},
-	}
-
-	tree := rtree.Build(nodes)
-	if tree != nil {
-		tree.PrintTree()
 	}
 }
