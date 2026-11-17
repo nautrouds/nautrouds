@@ -5,21 +5,14 @@ import (
 	"nautrouds/internal/core/registry"
 	"nautrouds/internal/rtree"
 	"net/http/httptest"
-	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkProxy_ServeHTTP(b *testing.B) {
-	tmpDir, err := os.MkdirTemp("", "nautrouds-bench-*")
-	if err != nil {
-		b.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
 	reg, err := registry.NewRegistry()
-	if err != nil {
-		b.Fatalf("failed to create registry: %v", err)
-	}
+	require.NoError(b, err)
 
 	manager := proxy.NewManager(reg, nil)
 
@@ -43,30 +36,22 @@ func BenchmarkProxy_ServeHTTP(b *testing.B) {
 	tree := rtree.Build(rawNodes)
 	manager.UpdateGeneration(&proxy.Generation{Tree: *tree})
 
-	b.Run("Virtual Service $ok", func(b *testing.B) {
-		req := httptest.NewRequest("GET", "http://example.com/health", nil)
-		w := httptest.NewRecorder()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			manager.ServeHTTP(w, req)
-		}
-	})
+	benchmarks := []struct {
+		name string
+		url  string
+	}{
+		{"Virtual Service $ok", "http://example.com/health"},
+		{"Virtual Service $echo", "http://example.com/echo"},
+		{"Routing 404", "http://example.com/not-found"},
+	}
 
-	b.Run("Virtual Service $echo", func(b *testing.B) {
-		req := httptest.NewRequest("GET", "http://example.com/echo", nil)
-		w := httptest.NewRecorder()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			manager.ServeHTTP(w, req)
-		}
-	})
-
-	b.Run("Routing 404", func(b *testing.B) {
-		req := httptest.NewRequest("GET", "http://example.com/not-found", nil)
-		w := httptest.NewRecorder()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			manager.ServeHTTP(w, req)
-		}
-	})
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			req := httptest.NewRequest("GET", bm.url, nil)
+			w := httptest.NewRecorder()
+			for b.Loop() {
+				manager.ServeHTTP(w, req)
+			}
+		})
+	}
 }

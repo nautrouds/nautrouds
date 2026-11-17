@@ -16,49 +16,62 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestIntegration_Nautrouds(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "nautrouds-integration-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
+const hotReloadTimeout = 10 * time.Second
+
+func serveUnixHTTP(t *testing.T, socketPath string, handler http.HandlerFunc) {
+	t.Helper()
+	ln, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+
+	server := &http.Server{Handler: handler}
+	go server.Serve(ln)
+	t.Cleanup(func() { server.Close() })
+}
+
+func buildBinary(t *testing.T, outDir, name, pkg string) string {
+	t.Helper()
+	goBin, err := exec.LookPath("go")
+	require.NoError(t, err)
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	binExt := ""
+	if runtime.GOOS == "windows" {
+		binExt = ".exe"
 	}
-	defer os.RemoveAll(tempDir)
+
+	binPath := filepath.Join(outDir, name+binExt)
+	cmd := exec.Command(goBin, "build", "-o", binPath, pkg)
+	cmd.Dir = filepath.Dir(wd)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	return binPath
+}
+
+func TestIntegration_Nautrouds(t *testing.T) {
+	tempDir := t.TempDir()
 
 	servicesDir := filepath.Join(tempDir, "services")
 	entrypointsDir := filepath.Join(tempDir, "entrypoints")
-	err = os.MkdirAll(servicesDir, 0755)
-	assert.NoError(t, err)
-	err = os.MkdirAll(entrypointsDir, 0755)
-	assert.NoError(t, err)
-
-	// Create a dummy backend service directory
 	backendSvcDir := filepath.Join(servicesDir, "backend-service")
-	err = os.MkdirAll(backendSvcDir, 0755)
-	assert.NoError(t, err)
+	require.NoError(t, os.MkdirAll(entrypointsDir, 0755))
+	require.NoError(t, os.MkdirAll(backendSvcDir, 0755))
 
-	backendSocketPath := filepath.Join(backendSvcDir, "instance.sock")
-	backendLn, err := net.Listen("unix", backendSocketPath)
-	if err != nil {
-		t.Fatalf("failed to listen on backend socket: %v", err)
-	}
+	backendSocket := filepath.Join(backendSvcDir, "instance.sock")
+	serveUnixHTTP(t, backendSocket, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":  "backend_ok",
+			"path":    r.URL.Path,
+			"headers": r.Header,
+		})
+	})
 
-	backendServer := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			data := map[string]interface{}{
-				"status":  "backend_ok",
-				"path":    r.URL.Path,
-				"headers": r.Header,
-			}
-			json.NewEncoder(w).Encode(data)
-		}),
-	}
-	go backendServer.Serve(backendLn)
-	defer backendServer.Close()
-
-	// Create a Ntufile (Routing config)
 	configPath := filepath.Join(tempDir, "Ntufile")
 	configContent := `
 # Route all traffic to the backend service
@@ -69,41 +82,14 @@ GET */health $ok("Nautrouds is healthy")
 GET */_services $services
 GET */_metrics $metrics
 `
-	err = os.WriteFile(configPath, []byte(configContent), 0644)
-	assert.NoError(t, err)
-
-	goBin, err := exec.LookPath("go")
-	if err != nil {
-		t.Fatalf("go binary not found: %v", err)
+	writeConfig := func(t *testing.T, extra string) {
+		require.NoError(t, os.WriteFile(configPath, []byte(configContent+extra), 0644))
 	}
+	writeConfig(t, "")
 
-	// Get current working directory of the project
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get working directory: %v", err)
-	}
+	ntucBin := buildBinary(t, tempDir, "ntuc", "./cmd/ntuc")
+	nautroudsBin := buildBinary(t, tempDir, "nautrouds", "./cmd/core")
 
-	binExt := ""
-	if runtime.GOOS == "windows" {
-		binExt = ".exe"
-	}
-
-	ntucBin := filepath.Join(tempDir, "ntuc"+binExt)
-	cmdBuildNtuc := exec.Command(goBin, "build", "-o", ntucBin, "./cmd/ntuc")
-
-	cmdBuildNtuc.Dir = filepath.Dir(wd)
-	if out, err := cmdBuildNtuc.CombinedOutput(); err != nil {
-		t.Fatalf("failed to build ntuc: %v\nOutput: %s", err, string(out))
-	}
-
-	nautroudsBin := filepath.Join(tempDir, "nautrouds"+binExt)
-	cmdBuildCore := exec.Command(goBin, "build", "-o", nautroudsBin, "./cmd/core")
-	cmdBuildCore.Dir = filepath.Dir(wd)
-	if out, err := cmdBuildCore.CombinedOutput(); err != nil {
-		t.Fatalf("failed to build nautrouds: %v\nOutput: %s", err, string(out))
-	}
-
-	// Start nautrouds core process
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -116,40 +102,21 @@ GET */_metrics $metrics
 		"-log-level", "debug",
 	)
 	cmd.Dir = tempDir
-
-	// Capture process stdout/stderr for troubleshooting
-	stderrPipe, err := cmd.StderrPipe()
-	assert.NoError(t, err)
-	stdoutPipe, err := cmd.StdoutPipe()
-	assert.NoError(t, err)
-
-	err = cmd.Start()
-	if err != nil {
-		t.Fatalf("failed to start nautrouds core: %v", err)
-	}
-
-	go func() {
-		_, _ = io.Copy(os.Stdout, stdoutPipe)
-	}()
-	go func() {
-		_, _ = io.Copy(os.Stderr, stderrPipe)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	require.NoError(t, cmd.Start())
+	defer func() {
+		cmd.Process.Signal(syscall.SIGINT)
+		cancel()
+		cmd.Wait()
 	}()
 
-	// Wait for entrypoint to be created
 	socketPath := filepath.Join(entrypointsDir, "nautrouds-0.sock")
-	found := false
-	for i := 0; i < 50; i++ {
-		if _, err := os.Stat(socketPath); err == nil {
-			found = true
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if !found {
-		t.Fatal("socket file not found after timeout")
-	}
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(socketPath)
+		return err == nil
+	}, 5*time.Second, 100*time.Millisecond, "entrypoint socket not created")
 
-	// Create a client that dials the UDS
 	client := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
@@ -158,237 +125,137 @@ GET */_metrics $metrics
 		},
 	}
 
-	// Test Virtual Service: GET /health
+	do := func(req *http.Request) (int, string) {
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, ""
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+	get := func(path string) (int, string) {
+		req, _ := http.NewRequest("GET", "http://localhost"+path, nil)
+		return do(req)
+	}
+	post := func(path, body string, contentLength int64) (int, string) {
+		req, _ := http.NewRequest("POST", "http://localhost"+path, strings.NewReader(body))
+		req.ContentLength = contentLength
+		return do(req)
+	}
+	waitFor := func(t *testing.T, timeout time.Duration, cond func() bool) {
+		t.Helper()
+		require.Eventually(t, cond, timeout, 100*time.Millisecond)
+	}
+
 	t.Run("Virtual Service Health", func(t *testing.T) {
-		resp, err := client.Get("http://localhost/health")
-		if err != nil {
-			t.Fatalf("failed to send request to health endpoint: %v", err)
-		}
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
-		assert.Contains(t, string(body), "Nautrouds is healthy")
+		code, body := get("/health")
+		assert.Equal(t, http.StatusOK, code)
+		assert.Contains(t, body, "Nautrouds is healthy")
 	})
 
-	// Test Proxy to Backend: GET /any-path
 	t.Run("Proxy to Backend", func(t *testing.T) {
-		resp, err := client.Get("http://localhost/any-path")
-		if err != nil {
-			t.Fatalf("failed to send request to proxy endpoint: %v", err)
-		}
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
-		assert.Contains(t, string(body), "backend_ok")
+		code, body := get("/any-path")
+		assert.Equal(t, http.StatusOK, code)
+		assert.Contains(t, body, "backend_ok")
 	})
 
-	// Test Middleware: $SetHeader and $PathTrimPrefix
 	t.Run("Middleware - SetHeader and PathTrimPrefix", func(t *testing.T) {
-		// Update Ntufile to include middleware
-		middlewareConfig := `
+		writeConfig(t, `
 GET */middleware/* backend-service
     $SetHeader(X-Test-Header, middleware-applied)
     $PathTrimPrefix(/middleware)
-`
-		err = os.WriteFile(configPath, []byte(configContent+middlewareConfig), 0644)
-		assert.NoError(t, err)
+`)
 
-		// Wait for hot-reload
-		time.Sleep(2 * time.Second)
+		var body string
+		waitFor(t, hotReloadTimeout, func() bool {
+			_, body = get("/middleware/any-path")
+			return strings.Contains(body, `"path":"/any-path"`)
+		})
 
-		resp, err := client.Get("http://localhost/middleware/any-path")
-		if err != nil {
-			t.Fatalf("failed to send request to middleware endpoint: %v", err)
+		var res struct {
+			Headers http.Header `json:"headers"`
 		}
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var res map[string]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&res)
-		assert.NoError(t, err)
-
-		// Check path (should be trimmed)
-		assert.Equal(t, "/any-path", res["path"])
-
-		// Check header
-		headers := res["headers"].(map[string]interface{})
-		assert.Equal(t, "middleware-applied", headers["X-Test-Header"].([]interface{})[0])
+		require.NoError(t, json.Unmarshal([]byte(body), &res))
+		assert.Equal(t, "middleware-applied", res.Headers.Get("X-Test-Header"))
 	})
 
 	t.Run("Middleware - BodySizeLimit", func(t *testing.T) {
-		bodySizeLimitConfig := `
+		const oversized = "this body is way over the ten byte limit"
+		writeConfig(t, `
 POST */upload backend-service
     $BodySizeLimit(10)
-`
-		err = os.WriteFile(configPath, []byte(configContent+bodySizeLimitConfig), 0644)
-		assert.NoError(t, err)
+`)
 
-		// Wait for hot-reload
-		time.Sleep(2 * time.Second)
-
-		t.Run("within limit", func(t *testing.T) {
-			resp, err := client.Post("http://localhost/upload", "text/plain", strings.NewReader("tiny"))
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		waitFor(t, hotReloadTimeout, func() bool {
+			code, _ := post("/upload", oversized, int64(len(oversized)))
+			return code == http.StatusRequestEntityTooLarge
 		})
 
-		t.Run("declared Content-Length exceeds limit", func(t *testing.T) {
-			resp, err := client.Post("http://localhost/upload", "text/plain", strings.NewReader("this body is way over the ten byte limit"))
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
-		})
+		code, _ := post("/upload", "tiny", int64(len("tiny")))
+		assert.Equal(t, http.StatusOK, code, "within limit")
 
-		t.Run("chunked body exceeds limit", func(t *testing.T) {
-			req, err := http.NewRequest("POST", "http://localhost/upload", strings.NewReader("this body is way over the ten byte limit"))
-			assert.NoError(t, err)
-			req.ContentLength = -1
-
-			resp, err := client.Do(req)
-			assert.NoError(t, err)
-			defer resp.Body.Close()
-			assert.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
-		})
+		code, _ = post("/upload", oversized, -1)
+		assert.Equal(t, http.StatusRequestEntityTooLarge, code, "chunked body exceeds limit")
 	})
 
-	// Test Hot Reload: Add a new virtual service
 	t.Run("Hot Reload - Virtual Service", func(t *testing.T) {
-		newConfig := configContent + `
+		writeConfig(t, `
 GET */new-virtual-service $ok("hot reload works")
-`
-		err = os.WriteFile(configPath, []byte(newConfig), 0644)
-		assert.NoError(t, err)
+`)
 
-		// Wait for hot-reload
-		time.Sleep(2 * time.Second)
-
-		resp, err := client.Get("http://localhost/new-virtual-service")
-		if err != nil {
-			t.Fatalf("failed to send request to new virtual service: %v", err)
-		}
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
-		assert.Contains(t, string(body), "hot reload works")
+		waitFor(t, hotReloadTimeout, func() bool {
+			code, body := get("/new-virtual-service")
+			return code == http.StatusOK && strings.Contains(body, "hot reload works")
+		})
 	})
 
-	// Test Multiple Backends
 	t.Run("Multiple Backends", func(t *testing.T) {
-		// Create another backend
 		service2Dir := filepath.Join(servicesDir, "service2")
-		err = os.MkdirAll(service2Dir, 0755)
-		assert.NoError(t, err)
+		require.NoError(t, os.MkdirAll(service2Dir, 0755))
 
 		// Give watcher time to register the new directory
 		time.Sleep(500 * time.Millisecond)
 
-		backend2Ln, err := net.Listen("unix", filepath.Join(service2Dir, "instance.sock"))
-		if err != nil {
-			t.Fatalf("failed to listen on service2 socket: %v", err)
-		}
-		backend2 := &http.Server{
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"status":"backend2_ok"}`))
-			}),
-		}
-		go backend2.Serve(backend2Ln)
-		defer backend2.Close()
+		service2Socket := filepath.Join(service2Dir, "instance.sock")
+		serveUnixHTTP(t, service2Socket, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"backend2_ok"}`))
+		})
 
-		// Add route for service2
-		configWithSvc2 := configContent + `
+		writeConfig(t, `
 GET */service2/* service2
-`
-		err = os.WriteFile(configPath, []byte(configWithSvc2), 0644)
-		assert.NoError(t, err)
+`)
 
-		// Wait for hot-reload
-		time.Sleep(2 * time.Second)
-
-		// Wait for service to be discovered
-		foundSvc := false
-		for i := 0; i < 400; i++ { // 40 seconds
-			resp, err := client.Get("http://localhost/_services")
-			if err == nil {
-				var svcs map[string][]string
-				json.NewDecoder(resp.Body).Decode(&svcs)
-				resp.Body.Close()
-				if _, ok := svcs["service2"]; ok {
-					foundSvc = true
-					break
-				}
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		assert.True(t, foundSvc, "service2 should be discovered")
-
-		resp, err := client.Get("http://localhost/service2/test")
-		if err != nil {
-			t.Fatalf("failed to send request to service2: %v", err)
-		}
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
-		assert.Contains(t, string(body), "backend2_ok")
+		waitFor(t, 40*time.Second, func() bool {
+			code, body := get("/service2/test")
+			return code == http.StatusOK && strings.Contains(body, "backend2_ok")
+		})
 	})
 
-	// Test Error Handling Virtual Service
 	t.Run("Virtual Service ERR", func(t *testing.T) {
-		errConfig := configContent + `
+		writeConfig(t, `
 GET */error $err(418,"I am a teapot")
-`
-		err = os.WriteFile(configPath, []byte(errConfig), 0644)
-		assert.NoError(t, err)
+`)
 
-		time.Sleep(2 * time.Second)
-
-		resp, err := client.Get("http://localhost/error")
-		assert.NoError(t, err)
-		defer resp.Body.Close()
-
-		assert.Equal(t, http.StatusTeapot, resp.StatusCode)
-		body, err := io.ReadAll(resp.Body)
-		assert.NoError(t, err)
-		assert.Contains(t, string(body), "I am a teapot")
+		waitFor(t, hotReloadTimeout, func() bool {
+			code, body := get("/error")
+			return code == http.StatusTeapot && strings.Contains(body, "I am a teapot")
+		})
 	})
 
-	// Test Discovery and Metrics
 	t.Run("Discovery and Metrics", func(t *testing.T) {
-		// Test /_services
-		resp, err := client.Get("http://localhost/_services")
-		assert.NoError(t, err)
-		defer resp.Body.Close()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		code, body := get("/_services")
+		require.Equal(t, http.StatusOK, code)
 
 		var services map[string][]string
-		err = json.NewDecoder(resp.Body).Decode(&services)
-		assert.NoError(t, err)
+		require.NoError(t, json.Unmarshal([]byte(body), &services))
 		assert.Contains(t, services, "backend-service")
 
-		// Test /_metrics
-		resp, err = client.Get("http://localhost/_metrics")
-		assert.NoError(t, err)
-		defer resp.Body.Close()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		body, _ := io.ReadAll(resp.Body)
-		assert.Contains(t, string(body), "nautrouds_requests_total")
+		code, body = get("/_metrics")
+		assert.Equal(t, http.StatusOK, code)
+		assert.Contains(t, body, "nautrouds_requests_total")
 	})
-
-	// Send SIGINT or cancel context to stop
-	if cmd.Process != nil {
-		_ = cmd.Process.Signal(syscall.SIGINT)
-	}
-	cancel()
-	_ = cmd.Wait()
 }

@@ -1,34 +1,31 @@
 package main
 
-import "testing"
+import (
+	"testing"
 
-func TestSocketNamer_NoInstanceID_DoesNotOwnOtherInstanceSockets(t *testing.T) {
-	namer := newSocketNamer("")
+	"github.com/stretchr/testify/assert"
+)
 
-	if got := namer.Format(0); got != "nautrouds-0.sock" {
-		t.Fatalf("Format(0) = %q, want %q", got, "nautrouds-0.sock")
+func TestSocketNamer(t *testing.T) {
+	tests := []struct {
+		name       string
+		instanceID string
+		wantFormat string
+		notOwned   []string
+	}{
+		{"NoInstanceID", "", "nautrouds-0.sock", []string{"nautrouds-abc-0.sock"}},
+		{"WithInstanceID", "abc", "nautrouds-abc-0.sock", []string{"nautrouds-abcd-0.sock", "nautrouds-0.sock"}},
 	}
-	if !namer.Owns("nautrouds-0.sock") {
-		t.Fatalf("expected to own %q", "nautrouds-0.sock")
-	}
-	if namer.Owns("nautrouds-abc-0.sock") {
-		t.Fatalf("must not own another instance's socket %q", "nautrouds-abc-0.sock")
-	}
-}
 
-func TestSocketNamer_WithInstanceID_DoesNotOwnPrefixCollisions(t *testing.T) {
-	namer := newSocketNamer("abc")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			namer := newSocketNamer(tt.instanceID)
 
-	if got := namer.Format(0); got != "nautrouds-abc-0.sock" {
-		t.Fatalf("Format(0) = %q, want %q", got, "nautrouds-abc-0.sock")
-	}
-	if !namer.Owns("nautrouds-abc-0.sock") {
-		t.Fatalf("expected to own %q", "nautrouds-abc-0.sock")
-	}
-	if namer.Owns("nautrouds-abcd-0.sock") {
-		t.Fatalf("must not own another instance's socket %q", "nautrouds-abcd-0.sock")
-	}
-	if namer.Owns("nautrouds-0.sock") {
-		t.Fatalf("must not own no-instance-id socket %q", "nautrouds-0.sock")
+			assert.Equal(t, tt.wantFormat, namer.Format(0))
+			assert.True(t, namer.Owns(tt.wantFormat))
+			for _, name := range tt.notOwned {
+				assert.False(t, namer.Owns(name), name)
+			}
+		})
 	}
 }

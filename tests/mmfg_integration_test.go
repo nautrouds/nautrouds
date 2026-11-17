@@ -23,18 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newMmfgTestEnv sets up a Registry + real unix mmfg.Hub wired into a
-// proxy.Manager, backed by a fresh temp services directory.
 func newMmfgTestEnv(t *testing.T) (manager *proxy.Manager, reg *registry.Registry, hub mmfg.Hub, servicesDir string) {
 	t.Helper()
 
-	tmpDir, err := os.MkdirTemp("", "nautrouds-mmfg-*")
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
-
-	servicesDir = filepath.Join(tmpDir, "services")
+	servicesDir = filepath.Join(t.TempDir(), "services")
 	require.NoError(t, os.MkdirAll(servicesDir, 0755))
 
+	var err error
 	reg, err = registry.NewRegistry()
 	require.NoError(t, err)
 
@@ -45,9 +40,6 @@ func newMmfgTestEnv(t *testing.T) (manager *proxy.Manager, reg *registry.Registr
 	return manager, reg, hub, servicesDir
 }
 
-// startBackendEcho listens on a real unix socket under
-// <servicesDir>/<serviceName>/instance.sock and echoes path/query/headers as
-// JSON, so tests can assert on what actually reached the backend.
 func startBackendEcho(t *testing.T, servicesDir, serviceName string) string {
 	t.Helper()
 
@@ -80,7 +72,8 @@ func startBackendEcho(t *testing.T, servicesDir, serviceName string) string {
 func startMmfgNode(t *testing.T, socketPath string, handler node.Handler) {
 	t.Helper()
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(socketPath), 0755))
+	socketDir := filepath.Dir(socketPath)
+	require.NoError(t, os.MkdirAll(socketDir, 0755))
 	os.Remove(socketPath)
 
 	l, err := net.ListenUnix("unixpacket", &net.UnixAddr{Name: socketPath, Net: "unixpacket"})
@@ -91,12 +84,11 @@ func startMmfgNode(t *testing.T, socketPath string, handler node.Handler) {
 	t.Cleanup(func() { l.Close() })
 }
 
-// startMmfgControl binds a node's control socket synchronously and serves it
-// with handler, used for self-respond scenarios.
 func startMmfgControl(t *testing.T, socketPath string, handler mmfghttp.Handler) {
 	t.Helper()
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(socketPath), 0755))
+	socketDir := filepath.Dir(socketPath)
+	require.NoError(t, os.MkdirAll(socketDir, 0755))
 	os.Remove(socketPath)
 
 	l, err := net.ListenUnix("unixpacket", &net.UnixAddr{Name: socketPath, Net: "unixpacket"})
@@ -131,7 +123,8 @@ func TestIntegration_Mmfg_HeaderAndURLMutation(t *testing.T) {
 		q := u.Query()
 		q.Set("mmfg", "1")
 		u.RawQuery = q.Encode()
-		r.SetURL(u.String())
+		rewrittenURL := u.String()
+		r.SetURL(rewrittenURL)
 	})
 
 	require.NoError(t, hub.ApplyServiceScan(servicesDir, "mmfg-service", []string{nodeSocket}))
