@@ -11,15 +11,16 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Not safe with t.Parallel(): os.Stdin is swapped globally for the duration.
 func withPipedStdin(t *testing.T, data []byte) {
 	t.Helper()
 	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("failed to create pipe: %v", err)
-	}
+	require.NoError(t, err)
 	original := os.Stdin
 	os.Stdin = r
 	t.Cleanup(func() {
@@ -27,116 +28,65 @@ func withPipedStdin(t *testing.T, data []byte) {
 		r.Close()
 	})
 
-	if _, err := w.Write(data); err != nil {
-		t.Fatalf("failed to write to pipe: %v", err)
-	}
+	_, err = w.Write(data)
+	require.NoError(t, err)
 	w.Close()
 }
 
-func newTestManager(t *testing.T) *proxy.Manager {
+func newTestWatcher(t *testing.T, defaultWelcome bool) (*configwatcher.ConfigWatcher, *proxy.Manager) {
 	t.Helper()
 	reg, err := registry.NewRegistry()
-	if err != nil {
-		t.Fatalf("failed to create registry: %v", err)
-	}
-	return proxy.NewManager(reg, nil)
+	require.NoError(t, err)
+	manager := proxy.NewManager(reg, nil)
+
+	configPath := filepath.Join(t.TempDir(), "missing.ntu")
+	cw, err := configwatcher.NewConfigWatcher(configPath, "ntuc", manager, defaultWelcome)
+	require.NoError(t, err)
+	t.Cleanup(func() { cw.Close() })
+	return cw, manager
 }
 
 func TestLoadInitial_MissingConfig_DefaultWelcomeEnabled(t *testing.T) {
-	manager := newTestManager(t)
-	configPath := filepath.Join(t.TempDir(), "missing.ntu")
-
-	cw, err := configwatcher.NewConfigWatcher(configPath, "ntuc", manager, true)
-	if err != nil {
-		t.Fatalf("failed to create config watcher: %v", err)
-	}
-	defer cw.Close()
-
-	if err := cw.LoadInitial(); err != nil {
-		t.Fatalf("expected fallback to succeed, got error: %v", err)
-	}
+	cw, manager := newTestWatcher(t, true)
+	require.NoError(t, cw.LoadInitial())
 
 	gen := manager.State.Load()
-	if gen == nil {
-		t.Fatal("expected a generation to be loaded")
-	}
+	require.NotNil(t, gen)
 
 	url := []byte("any-host.example/any/path")
 	rtree.ReverseHost(url)
 	node, exists := gen.Tree.Search(url)
-	if !exists {
-		t.Fatal("expected fallback tree to match any request")
-	}
-	if node.Methods != rtree.MethodAny {
-		t.Errorf("expected fallback route to accept any method, got %v", node.Methods)
-	}
+	require.True(t, exists)
+	assert.Equal(t, rtree.MethodAny, node.Methods)
 }
 
 func TestLoadInitial_MissingConfig_StdinPiped_UsesPipedConfig(t *testing.T) {
 	tree, err := compiler.ParseString("GET only.example/from-stdin stdin-service")
-	if err != nil {
-		t.Fatalf("failed to build test tree: %v", err)
-	}
+	require.NoError(t, err)
 
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(tree); err != nil {
-		t.Fatalf("failed to encode test tree: %v", err)
-	}
-	withPipedStdin(t, buf.Bytes())
+	require.NoError(t, gob.NewEncoder(&buf).Encode(tree))
+	pipedConfig := buf.Bytes()
+	withPipedStdin(t, pipedConfig)
 
-	manager := newTestManager(t)
-	configPath := filepath.Join(t.TempDir(), "missing.ntu")
+	cw, manager := newTestWatcher(t, true)
+	require.NoError(t, cw.LoadInitial())
 
-	cw, err := configwatcher.NewConfigWatcher(configPath, "ntuc", manager, true)
-	if err != nil {
-		t.Fatalf("failed to create config watcher: %v", err)
-	}
-	defer cw.Close()
-
-	if err := cw.LoadInitial(); err != nil {
-		t.Fatalf("expected stdin-piped config to load, got error: %v", err)
-	}
-
-	gen := manager.State.Load()
 	url := []byte("only.example/from-stdin")
 	rtree.ReverseHost(url)
-	if _, exists := gen.Tree.Search(url); !exists {
-		t.Fatal("expected route from piped stdin config to be present")
-	}
+	_, exists := manager.State.Load().Tree.Search(url)
+	assert.True(t, exists)
 }
 
 func TestLoadInitial_MissingConfig_StdinPiped_DecodeFailureFailsFast(t *testing.T) {
 	withPipedStdin(t, []byte("not a valid gob stream"))
 
-	manager := newTestManager(t)
-	configPath := filepath.Join(t.TempDir(), "missing.ntu")
-
-	cw, err := configwatcher.NewConfigWatcher(configPath, "ntuc", manager, true)
-	if err != nil {
-		t.Fatalf("failed to create config watcher: %v", err)
-	}
-	defer cw.Close()
-
-	if err := cw.LoadInitial(); err == nil {
-		t.Fatal("expected error for undecodable piped stdin, not a silent welcome fallback")
-	}
-
-	if gen := manager.State.Load(); gen != nil {
-		t.Fatal("expected no generation to be loaded after a failed stdin decode")
-	}
+	cw, manager := newTestWatcher(t, true)
+	require.Error(t, cw.LoadInitial())
+	assert.Nil(t, manager.State.Load())
 }
 
 func TestLoadInitial_MissingConfig_DefaultWelcomeDisabled(t *testing.T) {
-	manager := newTestManager(t)
-	configPath := filepath.Join(t.TempDir(), "missing.ntu")
-
-	cw, err := configwatcher.NewConfigWatcher(configPath, "ntuc", manager, false)
-	if err != nil {
-		t.Fatalf("failed to create config watcher: %v", err)
-	}
-	defer cw.Close()
-
-	if err := cw.LoadInitial(); err == nil {
-		t.Fatal("expected error when config is missing and fallback is disabled")
-	}
+	cw, _ := newTestWatcher(t, false)
+	assert.Error(t, cw.LoadInitial())
 }
