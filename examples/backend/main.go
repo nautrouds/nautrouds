@@ -19,7 +19,7 @@ func main() {
 
 	servicesDir := os.Getenv("NAUTROUDS_SERVICES_DIR")
 	if servicesDir == "" {
-		servicesDir = "/var/run/nautrouds/services"
+		servicesDir = "/run/nautrouds/services"
 	}
 
 	socketDir := filepath.Join(servicesDir, serviceName)

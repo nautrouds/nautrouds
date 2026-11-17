@@ -30,9 +30,9 @@ type Options struct {
 func Load() *Options {
 	configPtr := EnvString("config", "NAUTROUDS_CONFIG", "nautrouds.ntu", "Path to config file (.ntu or Ntufile)")
 	ntucPtr := EnvString("ntuc", "NAUTROUDS_NTUC", "ntuc", "Path to ntuc executable")
-	servicesDirPtr := EnvString("services", "NAUTROUDS_SERVICES_DIR", "/var/run/nautrouds/services", "Path to services directory")
+	servicesDirPtr := EnvString("services", "NAUTROUDS_SERVICES_DIR", "/run/nautrouds/services", "Path to services directory")
 	servicesDirModePtr := EnvString("services-dir-mode", "NAUTROUDS_SERVICES_DIR_MODE", "1777", "Permission mode for the services directory (octal, e.g. 0770)")
-	entrypointDirPtr := EnvString("entrypoint-dir", "NAUTROUDS_ENTRYPOINT_DIR", "/var/run/nautrouds/entrypoints", "Path to entrypoint directory")
+	entrypointDirPtr := EnvString("entrypoint-dir", "NAUTROUDS_ENTRYPOINT_DIR", "/run/nautrouds/entrypoints", "Path to entrypoint directory")
 	entrypointDirModePtr := EnvString("entrypoint-dir-mode", "NAUTROUDS_ENTRYPOINT_DIR_MODE", "0755", "Permission mode for the entrypoint directory (octal)")
 	entrypointCountPtr := EnvString("entrypoint-count", "NAUTROUDS_ENTRYPOINT_COUNT", "1", "Number of entrypoint instances to spawn")
 	logLevelPtr := EnvString("log-level", "NAUTROUDS_LOG_LEVEL", "info", "Log level (debug, info, warn, error, dpanic, panic, fatal)")

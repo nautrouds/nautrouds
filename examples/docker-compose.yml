@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     volumes:
-      - nautrouds-sockets:/var/run/nautrouds
+      - nautrouds-sockets:/run/nautrouds
       - ./Ntufile.example:/etc/nautrouds/Ntufile
     environment:
       - NAUTROUDS_CONFIG=/etc/nautrouds/Ntufile
@@ -17,17 +17,17 @@ services:
     environment:
       - SERVICE_NAME=backend-service
     volumes:
-      - nautrouds-sockets:/var/run/nautrouds
+      - nautrouds-sockets:/run/nautrouds
     restart: always
 
   # Optional: Bridge TCP to UDS so you can test from host
   gateway:
     image: alpine/socat
-    command: tcp-listen:8080,fork,reuseaddr unix-connect:/var/run/nautrouds/entrypoints/nautrouds-0.sock
+    command: tcp-listen:8080,fork,reuseaddr unix-connect:/run/nautrouds/entrypoints/nautrouds-0.sock
     ports:
       - "8080:8080"
     volumes:
-      - nautrouds-sockets:/var/run/nautrouds
+      - nautrouds-sockets:/run/nautrouds
     depends_on:
       - nautrouds-core
 

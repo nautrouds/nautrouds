@@ -39,17 +39,17 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Create initial directory structure
-RUN mkdir -p /etc/nautrouds /var/run/nautrouds/services /var/run/nautrouds/entrypoints && \
-    chown -R nautrouds:nautrouds /var/run/nautrouds /etc/nautrouds
+RUN mkdir -p /etc/nautrouds /run/nautrouds/services /run/nautrouds/entrypoints && \
+    chown -R nautrouds:nautrouds /run/nautrouds /etc/nautrouds
 
 # Define default volume for sockets
-VOLUME ["/var/run/nautrouds"]
+VOLUME ["/run/nautrouds"]
 
 # Default environment variables
 ENV NAUTROUDS_CONFIG=/etc/nautrouds/nautrouds.ntu
 ENV NAUTROUDS_NTLC=ntuc
-ENV NAUTROUDS_SERVICES_DIR=/var/run/nautrouds/services
-ENV NAUTROUDS_ENTRYPOINT_DIR=/var/run/nautrouds/entrypoints
+ENV NAUTROUDS_SERVICES_DIR=/run/nautrouds/services
+ENV NAUTROUDS_ENTRYPOINT_DIR=/run/nautrouds/entrypoints
 
 # The entrypoint script will handle final permission adjustments and drop privileges
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
