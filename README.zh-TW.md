@@ -70,8 +70,8 @@ curl http://localhost:8080/debug/services
 | 路徑 | 用途 |
 | :--- | :--- |
 | `/etc/nautrouds` | 設定檔（`.ntu`、`Ntufile`） |
-| `/var/run/nautrouds/services` | backend socket（`<service>/<node>.sock`） |
-| `/var/run/nautrouds/entrypoints` | Nautrouds 入口 socket |
+| `/run/nautrouds/services` | backend socket（`<service>/<node>.sock`） |
+| `/run/nautrouds/entrypoints` | Nautrouds 入口 socket |
 
 ## 負載平衡
 

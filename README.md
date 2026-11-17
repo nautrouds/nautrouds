@@ -70,8 +70,8 @@ curl http://localhost:8080/debug/services
 | Path | Purpose |
 | :--- | :--- |
 | `/etc/nautrouds` | Configuration files (`.ntu`, `Ntufile`) |
-| `/var/run/nautrouds/services` | Backend sockets (`<service>/<node>.sock`) |
-| `/var/run/nautrouds/entrypoints` | Nautrouds entrypoint sockets |
+| `/run/nautrouds/services` | Backend sockets (`<service>/<node>.sock`) |
+| `/run/nautrouds/entrypoints` | Nautrouds entrypoint sockets |
 
 ## Load Balancing
 

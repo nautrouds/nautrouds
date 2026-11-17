@@ -2,7 +2,7 @@
 
 `ntl-tentacle` sidecars push their metrics to the `nautrouds` core over UDS.
 
-- **Socket**: `/var/run/nautrouds/services/metrics.sock` by default.
+- **Socket**: `/run/nautrouds/services/metrics.sock` by default.
   - The directory is `--services`; the filename is `--metrics-socket` (`-` disables the collector). See the [Tooling Guide](./ntuc.md).
 - **Format**: binary frames of header + Protobuf payload + checksum.
 

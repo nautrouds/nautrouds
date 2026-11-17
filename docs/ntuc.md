@@ -13,9 +13,9 @@ Every option can be set by flag or environment variable.
 | `--config` | `NAUTROUDS_CONFIG` | `nautrouds.ntu` | [Config file](#config) |
 | `--ntuc` | `NAUTROUDS_NTUC` | `ntuc` | [Compiler path](#config) |
 | `--default-welcome` | `NAUTROUDS_DEFAULT_WELCOME` | `true` | [Fallback when config is missing](#config) |
-| `--services` | `NAUTROUDS_SERVICES_DIR` | `/var/run/nautrouds/services` | [Services directory](#directories) |
+| `--services` | `NAUTROUDS_SERVICES_DIR` | `/run/nautrouds/services` | [Services directory](#directories) |
 | `--services-dir-mode` | `NAUTROUDS_SERVICES_DIR_MODE` | `1777` | [Services directory mode](#directories) |
-| `--entrypoint-dir` | `NAUTROUDS_ENTRYPOINT_DIR` | `/var/run/nautrouds/entrypoints` | [Entrypoint directory](#directories) |
+| `--entrypoint-dir` | `NAUTROUDS_ENTRYPOINT_DIR` | `/run/nautrouds/entrypoints` | [Entrypoint directory](#directories) |
 | `--entrypoint-dir-mode` | `NAUTROUDS_ENTRYPOINT_DIR_MODE` | `0755` | [Entrypoint directory mode](#directories) |
 | `--entrypoint-count` | `NAUTROUDS_ENTRYPOINT_COUNT` | `1` | [Entrypoint socket count](#directories) |
 | `--instance-id` | `NAUTROUDS_INSTANCE_ID` | *(empty)* | [Entrypoint socket suffix](#directories) |
