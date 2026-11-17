@@ -6,16 +6,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTrackedResponseWriter_DefaultStatus(t *testing.T) {
 	w := newTrackedResponseWriter(httptest.NewRecorder())
-	if w.status != http.StatusOK {
-		t.Errorf("default status should be 200, got %d", w.status)
-	}
-	if w.size != 0 {
-		t.Errorf("default size should be 0, got %d", w.size)
-	}
+	assert.Equal(t, http.StatusOK, w.status)
+	assert.Zero(t, w.size)
 }
 
 func TestTrackedResponseWriter_WriteHeader(t *testing.T) {
@@ -23,42 +22,21 @@ func TestTrackedResponseWriter_WriteHeader(t *testing.T) {
 	w := newTrackedResponseWriter(rec)
 	w.WriteHeader(http.StatusNotFound)
 
-	if w.status != http.StatusNotFound {
-		t.Errorf("expected tracked status 404, got %d", w.status)
-	}
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected underlying recorder 404, got %d", rec.Code)
-	}
-}
-
-func TestTrackedResponseWriter_Write(t *testing.T) {
-	rec := httptest.NewRecorder()
-	w := newTrackedResponseWriter(rec)
-
-	n, err := w.Write([]byte("hello"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 5 {
-		t.Errorf("expected 5, got %d", n)
-	}
-	if w.size != 5 {
-		t.Errorf("expected tracked size 5, got %d", w.size)
-	}
-	if rec.Body.String() != "hello" {
-		t.Errorf("expected body hello, got %q", rec.Body.String())
-	}
+	assert.Equal(t, http.StatusNotFound, w.status)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestTrackedResponseWriter_WriteAccumulates(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := newTrackedResponseWriter(rec)
-	w.Write([]byte("ab"))
+
+	n, err := w.Write([]byte("ab"))
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
 	w.Write([]byte("cde"))
 
-	if w.size != 5 {
-		t.Errorf("expected accumulated size 5, got %d", w.size)
-	}
+	assert.EqualValues(t, 5, w.size)
+	assert.Equal(t, "abcde", rec.Body.String())
 }
 
 func TestTrackedResponseWriter_Flush_WithFlusher(t *testing.T) {
@@ -66,26 +44,20 @@ func TestTrackedResponseWriter_Flush_WithFlusher(t *testing.T) {
 	w := newTrackedResponseWriter(rec)
 	w.Flush()
 
-	if !rec.Flushed {
-		t.Error("expected underlying flusher to be called")
-	}
+	assert.True(t, rec.Flushed)
 }
 
 type noopResponseWriter struct{ http.ResponseWriter }
 
 func TestTrackedResponseWriter_Flush_WithoutFlusher(t *testing.T) {
-	noop := &noopResponseWriter{httptest.NewRecorder()}
-	w := newTrackedResponseWriter(noop)
-	w.Flush() // should not panic
+	w := newTrackedResponseWriter(&noopResponseWriter{httptest.NewRecorder()})
+	assert.NotPanics(t, w.Flush)
 }
 
 func TestTrackedResponseWriter_Hijack_WithoutSupport(t *testing.T) {
-	rec := httptest.NewRecorder()
-	w := newTrackedResponseWriter(rec)
+	w := newTrackedResponseWriter(httptest.NewRecorder())
 	_, _, err := w.Hijack()
-	if err == nil {
-		t.Error("expected error when underlying writer does not support hijacking")
-	}
+	assert.Error(t, err)
 }
 
 type hijackWriter struct {
@@ -94,7 +66,9 @@ type hijackWriter struct {
 }
 
 func (h *hijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return h.conn, bufio.NewReadWriter(bufio.NewReader(h.conn), bufio.NewWriter(h.conn)), nil
+	reader := bufio.NewReader(h.conn)
+	writer := bufio.NewWriter(h.conn)
+	return h.conn, bufio.NewReadWriter(reader, writer), nil
 }
 
 func TestTrackedResponseWriter_Hijack_WithSupport(t *testing.T) {
@@ -102,14 +76,9 @@ func TestTrackedResponseWriter_Hijack_WithSupport(t *testing.T) {
 	defer server.Close()
 	defer client.Close()
 
-	hw := &hijackWriter{ResponseWriter: httptest.NewRecorder(), conn: server}
-	w := newTrackedResponseWriter(hw)
+	w := newTrackedResponseWriter(&hijackWriter{ResponseWriter: httptest.NewRecorder(), conn: server})
 
 	conn, _, err := w.Hijack()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if conn != server {
-		t.Error("expected the server-side connection to be returned")
-	}
+	require.NoError(t, err)
+	assert.Same(t, server, conn)
 }

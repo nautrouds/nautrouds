@@ -1,32 +1,28 @@
 package proxy_test
 
 import (
-	"fmt"
 	"nautrouds/internal/core/proxy"
 	"nautrouds/internal/core/registry"
 	"nautrouds/internal/rtree"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newFailedNodeManager(t *testing.T, serviceName string, nodeCount int, middlewares []string) *proxy.Manager {
+func newFailedNodeManager(t *testing.T, nodeNames []string, middlewares []string) *proxy.Manager {
 	t.Helper()
+	tmpDir := t.TempDir()
 
-	tmpDir, err := os.MkdirTemp("", "nautrouds-failed-node-test-*")
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
-
-	nodes := make([]string, nodeCount)
-	listeners := make([]net.Listener, nodeCount)
-	for i := range nodes {
-		nodes[i] = filepath.Join(tmpDir, fmt.Sprintf("node%d.sock", i))
+	nodes := make([]string, len(nodeNames))
+	listeners := make([]net.Listener, len(nodeNames))
+	for i, name := range nodeNames {
+		nodes[i] = filepath.Join(tmpDir, name)
 		l, err := net.Listen("unix", nodes[i])
 		require.NoError(t, err)
 		listeners[i] = l
@@ -34,7 +30,7 @@ func newFailedNodeManager(t *testing.T, serviceName string, nodeCount int, middl
 
 	reg, err := registry.NewRegistry()
 	require.NoError(t, err)
-	require.NoError(t, reg.ApplyServiceScan(tmpDir, serviceName, nodes))
+	require.NoError(t, reg.ApplyServiceScan(tmpDir, "failed-svc", nodes))
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -46,7 +42,7 @@ func newFailedNodeManager(t *testing.T, serviceName string, nodeCount int, middl
 	tree := rtree.Build([]*rtree.RawNode{
 		{
 			URL:         "example.com/api",
-			Service:     serviceName,
+			Service:     "failed-svc",
 			Methods:     "GET,POST",
 			Middlewares: middlewares,
 		},
@@ -56,78 +52,32 @@ func newFailedNodeManager(t *testing.T, serviceName string, nodeCount int, middl
 	return manager
 }
 
-func TestForwardToBackend_SafeMethodRetriesThenServiceUnavailable(t *testing.T) {
-	manager := newFailedNodeManager(t, "failed-svc-safe", 1, nil)
+func TestForwardToBackend_FailedNodes(t *testing.T) {
+	threeNodes := []string{"node0.sock", "node1.sock", "node2.sock"}
 
-	req := httptest.NewRequest("GET", "http://example.com/api", nil)
-	w := httptest.NewRecorder()
-	manager.ServeHTTP(w, req)
+	tests := []struct {
+		name        string
+		method      string
+		nodes       []string
+		middlewares []string
+		wantCode    int
+	}{
+		{"SafeMethodRetriesThenServiceUnavailable", "GET", []string{"node0.sock"}, nil, http.StatusServiceUnavailable},
+		{"UnsafeMethodFailsFastWithoutRetry", "POST", []string{"node0.sock"}, nil, http.StatusBadGateway},
+		{"RetryLimitBoundsAttempts", "GET", threeNodes, []string{"$RetryLimit(1)"}, http.StatusBadGateway},
+		{"NoRetryLimitExhaustsAllNodes", "GET", threeNodes, nil, http.StatusServiceUnavailable},
+		{"ErrNodeFailedSkipIgnoresRetryLimit", "GET", []string{"node@3.sock"}, []string{"$RetryLimit(1)"}, http.StatusServiceUnavailable},
+	}
 
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := newFailedNodeManager(t, tt.nodes, tt.middlewares)
 
-func TestForwardToBackend_UnsafeMethodFailsFastWithoutRetry(t *testing.T) {
-	manager := newFailedNodeManager(t, "failed-svc-unsafe", 1, nil)
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, "http://example.com/api", nil)
+			manager.ServeHTTP(w, req)
 
-	req := httptest.NewRequest("POST", "http://example.com/api", nil)
-	w := httptest.NewRecorder()
-	manager.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusBadGateway, w.Code)
-}
-
-func TestForwardToBackend_RetryLimitBoundsAttempts(t *testing.T) {
-	manager := newFailedNodeManager(t, "failed-svc-limited", 3, []string{"$RetryLimit(1)"})
-
-	req := httptest.NewRequest("GET", "http://example.com/api", nil)
-	w := httptest.NewRecorder()
-	manager.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusBadGateway, w.Code)
-}
-
-func TestForwardToBackend_NoRetryLimitExhaustsAllNodes(t *testing.T) {
-	manager := newFailedNodeManager(t, "failed-svc-unbounded", 3, nil)
-
-	req := httptest.NewRequest("GET", "http://example.com/api", nil)
-	w := httptest.NewRecorder()
-	manager.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
-}
-
-func TestForwardToBackend_ErrNodeFailedSkipIgnoresRetryLimit(t *testing.T) {
-	serviceName := "failed-svc-node-failed-skip"
-
-	tmpDir, err := os.MkdirTemp("", "nautrouds-node-failed-skip-test-*")
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
-
-	nodePath := filepath.Join(tmpDir, "node@3.sock")
-	l, err := net.Listen("unix", nodePath)
-	require.NoError(t, err)
-
-	reg, err := registry.NewRegistry()
-	require.NoError(t, err)
-	require.NoError(t, reg.ApplyServiceScan(tmpDir, serviceName, []string{nodePath}))
-
-	time.Sleep(50 * time.Millisecond)
-	require.NoError(t, l.Close())
-
-	manager := proxy.NewManager(reg, nil)
-	tree := rtree.Build([]*rtree.RawNode{
-		{
-			URL:         "example.com/api",
-			Service:     serviceName,
-			Methods:     "GET",
-			Middlewares: []string{"$RetryLimit(1)"},
-		},
-	})
-	manager.UpdateGeneration(&proxy.Generation{Tree: *tree})
-
-	req := httptest.NewRequest("GET", "http://example.com/api", nil)
-	w := httptest.NewRecorder()
-	manager.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+			assert.Equal(t, tt.wantCode, w.Code)
+		})
+	}
 }

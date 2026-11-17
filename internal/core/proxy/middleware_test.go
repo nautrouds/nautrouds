@@ -23,8 +23,6 @@ import (
 
 const chunkedContentLength = -1
 
-// fakeMmfgRequest is a minimal mmfg.Request stub that records how many times
-// Apply is called, so tests can assert it fires exactly once.
 type fakeMmfgRequest struct {
 	applyCount atomic.Int32
 }
@@ -64,14 +62,6 @@ func (h *fakeMmfgHub) Request(ctx context.Context, r *http.Request) (mmfg.Reques
 
 var _ mmfg.Hub = (*fakeMmfgHub)(nil)
 
-// TestManager_BodySizeLimit_AppliesAndDropsMmfgSession verifies the
-// runMiddlewareChain special case: when $BodySizeLimit runs with an open
-// mmfg session, the session's Apply() must fire exactly once (committing
-// pending mmfg mutations before the body check) and must not be reused or
-// re-applied afterwards.
-//
-// mmfg is unix-only (internal/core/mmfg/mmfg_not_unix.go), so this test only
-// runs where mmfg.IsAvailable is true.
 func TestManager_BodySizeLimit_AppliesAndDropsMmfgSession(t *testing.T) {
 	if !mmfg.IsAvailable {
 		t.Skip("mmfg is unix-only; skipping on this platform")
@@ -84,17 +74,14 @@ func TestManager_BodySizeLimit_AppliesAndDropsMmfgSession(t *testing.T) {
 	require.NoError(t, err)
 
 	manager := proxy.NewManager(reg, hub)
-
-	rawNodes := []*rtree.RawNode{
+	manager.UpdateGeneration(&proxy.Generation{Tree: *rtree.Build([]*rtree.RawNode{
 		{
 			URL:         "example.com/upload",
 			Service:     "upload-service",
 			Methods:     "POST",
 			Middlewares: []string{"$mmfg(test-node)", "$BodySizeLimit(10)"},
 		},
-	}
-	tree := rtree.Build(rawNodes)
-	manager.UpdateGeneration(&proxy.Generation{Tree: *tree})
+	})})
 
 	req := httptest.NewRequest("POST", "http://example.com/upload", strings.NewReader("this body is way over ten bytes"))
 	w := httptest.NewRecorder()
@@ -104,10 +91,8 @@ func TestManager_BodySizeLimit_AppliesAndDropsMmfgSession(t *testing.T) {
 	assert.Equal(t, int32(1), fakeReq.applyCount.Load())
 }
 
-func TestServeHTTP_ChunkedBodyExceedsBodySizeLimit_ReturnsRequestEntityTooLarge(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "proxy-body-too-large-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+func TestServeHTTP_ChunkedBodyExceedsBodySizeLimit(t *testing.T) {
+	tmpDir := t.TempDir()
 
 	svcDir := filepath.Join(tmpDir, "upload-service")
 	require.NoError(t, os.MkdirAll(svcDir, 0755))
